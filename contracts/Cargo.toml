@@ -1,0 +1,10 @@
+[package]
+name = "contracts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cosmwasm-std = "1.1.0"
+cw-storage-plus = "2.0.0"
+schemars = "0.8.11"
+serde = { version = "1.0.144", features = ["derive"] }
