@@ -101,7 +101,7 @@ pub fn instantiate(
 
     // Save initial exchange rates
     for rate in msg.initial_rates {
-        if rate.rate.is_zero() || rate.rate.is_negative() {
+        if rate.rate.is_zero() || rate.rate < Decimal::zero() {
             return Err(StdError::generic_err("Rate must be positive"));
         }
         EXCHANGE_RATES.save(
@@ -198,7 +198,7 @@ fn execute_update_rate(
     }
 
     // Validate rate
-    if new_rate.is_zero() || new_rate.is_negative() {
+    if new_rate.is_zero() || new_rate < Decimal::zero() {
         return Err(StdError::generic_err("Rate must be positive"));
     }
 
