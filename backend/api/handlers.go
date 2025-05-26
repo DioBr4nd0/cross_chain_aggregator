@@ -1,43 +1,27 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"cosmos_defi_aggregator/models"   // Adjust
-	"cosmos_defi_aggregator/services" // Adjust
-	"cosmos_defi_aggregator/config"
+	"cosmos_defi_aggregator/models"
+	"cosmos_defi_aggregator/services"
+	"cosmos_defi_aggregator/config" // For GetChains for /chains endpoint
 )
 
-// GetChainsHandler returns a list of configured chains
 func GetChainsHandler(c *gin.Context) {
-	// In a real app, this might come from config or a dynamic discovery
-	// For now, using the config.GlobalChains directly.
-	// We need to filter what we expose via API from the internal config.Chain struct
-	type APIChainInfo struct {
-		ID string `json:"id"`
-		Name string `json:"name"`
-		NativeToken string `json:"nativeToken"`
-		SupportedTokens []string `json:"supportedTokens"`
-	}
-	var apiChains []APIChainInfo
-	for _, chain := range config.GlobalChains {
-		apiChains = append(apiChains, APIChainInfo{
-			ID: chain.ID,
-			Name: chain.Name,
-			NativeToken: chain.NativeToken,
-			SupportedTokens: chain.SupportedTokens,
-		})
+	var apiChains []config.ChainConfig // Expose configured chains
+	for _, chainCfg := range config.GlobalAppConfig.Chains {
+		apiChains = append(apiChains, chainCfg)
 	}
 	c.JSON(http.StatusOK, apiChains)
 }
 
-
-// GetTokensHandler returns a list of all unique tokens supported across chains
-func GetTokensHandler(c *gin.Context) {
+func GetTokensHandler(c *gin.Context) { // Simplified
 	tokenMap := make(map[string]bool)
-	for _, chain := range config.GlobalChains {
-		tokenMap[chain.NativeToken] = true
+	for _, chain := range config.GlobalAppConfig.Chains {
+		tokenMap[chain.FeeDenom] = true // Include native/fee denoms
 		for _, t := range chain.SupportedTokens {
 			tokenMap[t] = true
 		}
@@ -49,17 +33,15 @@ func GetTokensHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"supportedTokens": tokens})
 }
 
-// GetRatesHandler returns available direct rates for a token pair across all chains
+
 func GetRatesHandler(c *gin.Context) {
 	fromToken := c.Query("fromToken")
 	toToken := c.Query("toToken")
-
 	if fromToken == "" || toToken == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken and toToken query parameters are required"})
 		return
 	}
-
-	rates, err := services.GetRatesForPairAcrossChains(fromToken, toToken)
+	rates, err := services.GetRatesForPairAcrossChains(c.Request.Context(), fromToken, toToken)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -67,22 +49,18 @@ func GetRatesHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, rates)
 }
 
-
-// FindBestRouteHandler handles requests to find the best swap route
 func FindBestRouteHandler(c *gin.Context) {
 	var req models.BestRouteRequest
-	if err := c.ShouldBindQuery(&req); err != nil { // Use ShouldBindQuery for GET params
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters: " + err.Error()})
+	// For GET requests, bind query parameters
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameters: " + err.Error()})
 		return
 	}
-	// Basic validation
 	if req.FromToken == "" || req.ToToken == "" || req.AmountIn == "" || req.FromChainID == "" {
-		 c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken, toToken, amountIn, and fromChainID are required"})
-        return
+		c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken, toToken, amountIn, and fromChainID are required"})
+		return
 	}
-
-
-	routeResponse, err := services.FindBestRouteForSwap(req)
+	routeResponse, err := services.FindBestSwapRoute(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to find best route: " + err.Error()})
 		return
@@ -90,23 +68,21 @@ func FindBestRouteHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, routeResponse)
 }
 
-// ExecuteSwapHandler handles requests to execute a swap
 func ExecuteSwapHandler(c *gin.Context) {
 	var req models.ExecuteSwapRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 		return
 	}
-
-	// Basic validation
-    if req.FromToken == "" || req.ToToken == "" || req.AmountIn == "" || req.FromChainID == "" || req.SenderAddress == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken, toToken, amountIn, fromChainID, and senderAddress are required"})
+    if req.FromToken == "" || req.ToToken == "" || req.AmountIn == "" || req.FromChainID == "" || req.UserAddress == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken, toToken, amountIn, fromChainID, and userAddress are required"})
         return
     }
 
-	result, err := services.ExecuteFullSwapRoute(req)
+	log.Printf("API: Received swap request: %+v", req)
+	result, err := services.ProcessSwapRequest(c.Request.Context(), req)
 	if err != nil {
-		// Determine appropriate status code based on error type if needed
+		// ProcessSwapRequest now includes txhash in result even on error for broadcast attempts
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Swap execution failed: " + err.Error(), "details": result})
 		return
 	}

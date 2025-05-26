@@ -3,24 +3,23 @@ package utils
 import (
 	"fmt"
 
-	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// StringToSDKInt converts a string amount to sdk.Int.
-func StringToSDKInt(amountStr string) (math.Int, error) {
-	i, ok := math.NewIntFromString(amountStr)
-	if !ok {
-		return math.Int{}, fmt.Errorf("failed to convert string to sdk Int")
+// StringToSDKDec converts a string to sdk.Dec.
+func StringToSDKDec(s string) (sdk.Dec, error) {
+	dec, err := sdk.NewDecFromStr(s)
+	if err != nil {
+		return sdk.Dec{}, err
 	}
-	
-	return i, nil
+	return dec, nil
 }
 
-// StringToSDKDec converts a string rate to sdk.Dec.
-func StringToSDKDec(rateStr string) (math.LegacyDec, error) {
-	d, err := math.LegacyNewDecFromStr(rateStr)
-	if err != nil {
-		return math.LegacyDec{}, err
+// StringToSDKInt converts a string to sdk.Int.
+func StringToSDKInt(s string) (sdk.Int, error) {
+	val, ok := sdk.NewIntFromString(s)
+	if !ok {
+		return sdk.Int{}, fmt.Errorf("failed to convert string '%s' to sdk.Int", s)
 	}
-	return d, nil
+	return val, nil
 }
