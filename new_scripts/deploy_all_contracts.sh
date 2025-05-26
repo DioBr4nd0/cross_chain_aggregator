@@ -2,12 +2,53 @@
 
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# ... (Keep your existing configurations for WASM_FILE, DEPLOYER_KEY_NAME, chains, etc.) ...
-# WASM_FILE="../contracts/mock_dex/artifacts/mock_dex.wasm"
-# DEPLOYER_KEY_NAME="backendop"
-# KEYRING_BACKEND="test"
-# COMMON_TX_FLAGS="--gas auto --gas-adjustment 1.5 -y -o json --keyring-backend $KEYRING_BACKEND"
-# ... (Chain A, B, C configs) ...
+# --- Configuration ---
+WASM_FILE="../contracts/mock_dex/artifacts/mock_dex.wasm" # Adjust if your path is different
+DEPLOYER_KEY_NAME="backendop"
+KEYRING_BACKEND="test"
+# Ensure COMMON_TX_FLAGS are appended correctly or integrated into TX_FLAGS_WASMD etc.
+COMMON_TX_FLAGS_BASE="--gas auto --gas-adjustment 1.5 -y -o json --keyring-backend $KEYRING_BACKEND"
+
+
+# --- Chain Alpha (AlphaNet) ---
+CHAIN_A_ID="alphanet-1"
+CHAIN_A_HOME_DIR="$HOME/.alphanet"
+CHAIN_A_NODE_RPC="tcp://localhost:26657"
+CHAIN_A_NATIVE_DENOM="ualpha"
+CHAIN_A_DEX_NAME="AlphaDEX"
+CHAIN_A_INITIAL_RATES_JSON='[
+  {"from_denom":"ualpha","to_denom":"ibc/BetaOnAlpha","rate":"10.0"},
+  {"from_denom":"ibc/BetaOnAlpha","to_denom":"ualpha","rate":"0.095"},
+  {"from_denom":"ualpha","to_denom":"ibc/GammaOnAlpha","rate":"5.0"},
+  {"from_denom":"ibc/GammaOnAlpha","to_denom":"ualpha","rate":"0.19"}
+]'
+
+# --- Chain Beta (BetaNet) ---
+CHAIN_B_ID="betanet-1"
+CHAIN_B_HOME_DIR="$HOME/.betanet"
+CHAIN_B_NODE_RPC="tcp://localhost:27657"
+CHAIN_B_NATIVE_DENOM="ubeta"
+CHAIN_B_DEX_NAME="BetaDEX"
+CHAIN_B_INITIAL_RATES_JSON='[
+  {"from_denom":"ubeta","to_denom":"ibc/AlphaOnBeta","rate":"0.1"},
+  {"from_denom":"ibc/AlphaOnBeta","to_denom":"ubeta","rate":"9.8"},
+  {"from_denom":"ubeta","to_denom":"ibc/GammaOnBeta","rate":"2.0"},
+  {"from_denom":"ibc/GammaOnBeta","to_denom":"ubeta","rate":"0.48"}
+]'
+
+# --- Chain Gamma (GammaNet) ---
+CHAIN_C_ID="gammanet-1"
+CHAIN_C_HOME_DIR="$HOME/.gammanet"
+CHAIN_C_NODE_RPC="tcp://localhost:28657"
+CHAIN_C_NATIVE_DENOM="ugamma"
+CHAIN_C_DEX_NAME="GammaDEX"
+CHAIN_C_INITIAL_RATES_JSON='[
+  {"from_denom":"ugamma","to_denom":"ibc/AlphaOnGamma","rate":"0.2"},
+  {"from_denom":"ibc/AlphaOnGamma","to_denom":"ugamma","rate":"4.9"},
+  {"from_denom":"ugamma","to_denom":"ibc/BetaOnGamma","rate":"0.5"},
+  {"from_denom":"ibc/BetaOnGamma","to_denom":"ugamma","rate":"1.95"}
+]'
+
 
 # --- Helper Function to Deploy to a Single Chain ---
 deploy_to_chain() {
@@ -23,27 +64,24 @@ deploy_to_chain() {
 
   # 1. Store WASM Code
   echo "Storing WASM code on ${CHAIN_ID}..."
-  # Common transaction flags specific to wasmd tx commands
-  TX_FLAGS_WASMD="--from $DEPLOYER_KEY_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --fees 1000000$NATIVE_DENOM $COMMON_TX_FLAGS"
+  # Construct TX_FLAGS for wasmd store command
+  TX_FLAGS_STORE="--from $DEPLOYER_KEY_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --fees 1000000$NATIVE_DENOM $COMMON_TX_FLAGS_BASE"
 
-  # Execute the store command and capture its JSON output
-  STORE_CMD_OUTPUT=$(wasmd tx wasm store "$WASM_FILE" $TX_FLAGS_WASMD)
+  STORE_CMD_OUTPUT=$(wasmd tx wasm store "$WASM_FILE" $TX_FLAGS_STORE)
 
-  # Check if the command output is valid JSON and if the transaction was successful
+  # Check for valid JSON and successful transaction code (0)
   if ! echo "$STORE_CMD_OUTPUT" | jq -e . > /dev/null 2>&1; then
-    echo "Error: 'wasmd tx wasm store' did not return valid JSON for ${CHAIN_ID}."
+    echo "Error: 'wasmd tx wasm store' command failed or did not return valid JSON for ${CHAIN_ID}."
     echo "Output: $STORE_CMD_OUTPUT"
     return 1
   fi
-  
   TX_CODE=$(echo "$STORE_CMD_OUTPUT" | jq -r '.code')
   if [ "$TX_CODE" != "0" ]; then
-    echo "Error storing WASM code on ${CHAIN_ID} (tx code: $TX_CODE):"
-    echo "$STORE_CMD_OUTPUT" | jq
+    echo "Error storing WASM code on ${CHAIN_ID} (tx code: $TX_CODE). Raw log:"
+    echo "$STORE_CMD_OUTPUT" | jq -r '.raw_log'
     return 1
   fi
 
-  # Extract TXHASH from the store command output
   TXHASH_STORE=$(echo "$STORE_CMD_OUTPUT" | jq -r '.txhash')
   if [ -z "$TXHASH_STORE" ] || [ "$TXHASH_STORE" == "null" ]; then
     echo "Error: Could not extract TXHASH from store transaction output on ${CHAIN_ID}."
@@ -52,85 +90,73 @@ deploy_to_chain() {
     return 1
   fi
   echo "Store code transaction submitted. TXHASH: $TXHASH_STORE. Waiting for inclusion..."
-  
-  # Wait for the transaction to be included in a block (adjust sleep time as needed for your local chain)
-  sleep 6 # As recommended in the CosmWasm docs [3]
+  sleep 7 # Increased sleep as per docs suggestion
 
-  # 2. Query the transaction to get the CODE_ID from events [3]
+  # Query the transaction to get the CODE_ID from events
   echo "Querying transaction $TXHASH_STORE for CODE_ID..."
-  QUERY_TX_RESPONSE=$(wasmd query tx "$TXHASH_STORE" --node "$NODE_RPC" --output json --home "$CHAIN_HOME_DIR")
+  # Query flags need --output json to be parsed by jq
+  QUERY_TX_FLAGS="--node $NODE_RPC --output json --home $CHAIN_HOME_DIR"
+  QUERY_TX_RESPONSE=$(wasmd query tx "$TXHASH_STORE" $QUERY_TX_FLAGS)
   
-  # Check if the query tx response is valid JSON
   if ! echo "$QUERY_TX_RESPONSE" | jq -e . > /dev/null 2>&1; then
     echo "Error: 'wasmd query tx' did not return valid JSON for ${CHAIN_ID} tx $TXHASH_STORE."
     echo "Output: $QUERY_TX_RESPONSE"
     return 1
   fi
-
-  # Extract CODE_ID from the transaction events [3, 5]
-  CODE_ID=$(echo "$QUERY_TX_RESPONSE" | jq -r '.logs[0].events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value')
-  # A more robust jq for events that might not be in logs[0] or have different structures:
-  # CODE_ID=$(echo "$QUERY_TX_RESPONSE" | jq -r 'first(.logs[].events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value)')
-  # Or, as per the link:
-  # CODE_ID=$(echo "$QUERY_TX_RESPONSE" | jq -r '.events[] | select(.type=="store_code").attributes[] | select(.key=="code_id").value')
-  # Let's use the one from the official docs example directly [3]
+  
+  # Extract CODE_ID using the jq path from official docs [3, 5]
   CODE_ID=$(echo "$QUERY_TX_RESPONSE" | jq -r '.events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value')
 
-
   if [ -z "$CODE_ID" ] || [ "$CODE_ID" == "null" ]; then
-    echo "Error: Could not extract CODE_ID from transaction events on ${CHAIN_ID} for tx $TXHASH_STORE."
-    echo "Query TX Response:"
-    echo "$QUERY_TX_RESPONSE" | jq
-    # Fallback: try to get it from raw_log if events structure is different or tx failed subtly
-    RAW_LOG_CODE_ID=$(echo "$QUERY_TX_RESPONSE" | jq -r '.raw_log | fromjson? | .[0].events[]? | select(.type=="store_code") | .attributes[]? | select(.key=="code_id") | .value')
-    if [ -n "$RAW_LOG_CODE_ID" ] && [ "$RAW_LOG_CODE_ID" != "null" ]; then
-        echo "Found CODE_ID in raw_log: $RAW_LOG_CODE_ID"
-        CODE_ID="$RAW_LOG_CODE_ID"
+    # Fallback to logs if events structure is different, though `events` is standard
+    CODE_ID_LOGS=$(echo "$QUERY_TX_RESPONSE" | jq -r '.logs[0].events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value')
+    if [ -n "$CODE_ID_LOGS" ] && [ "$CODE_ID_LOGS" != "null" ]; then
+        CODE_ID="$CODE_ID_LOGS"
     else
-        echo "CODE_ID also not found in raw_log."
+        echo "Error: Could not extract CODE_ID from transaction events or logs on ${CHAIN_ID} for tx $TXHASH_STORE."
+        echo "Query TX Response:"
+        echo "$QUERY_TX_RESPONSE" | jq
         return 1
     fi
   fi
   echo "Stored WASM code on ${CHAIN_ID} with CODE_ID: $CODE_ID"
   sleep 2
 
-  # 3. Instantiate Contract
+  # 2. Instantiate Contract
   INSTANTIATE_MSG=$(printf '{"admin":"%s","dex_name":"%s","initial_rates":%s}' "$DEPLOYER_ADDR" "$DEX_NAME" "$INITIAL_RATES_JSON")
 
   echo "Instantiating ${DEX_NAME} on ${CHAIN_ID} with CODE_ID ${CODE_ID}..."
   echo "Instantiate message: $INSTANTIATE_MSG"
   
-  # Common flags for instantiate
-  INSTANTIATE_TX_FLAGS="--from $DEPLOYER_KEY_NAME --label $DEX_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --admin $DEPLOYER_ADDR --fees 500000$NATIVE_DENOM $COMMON_TX_FLAGS"
+  TX_FLAGS_INSTANTIATE="--from $DEPLOYER_KEY_NAME --label $DEX_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --admin $DEPLOYER_ADDR --fees 500000$NATIVE_DENOM $COMMON_TX_FLAGS_BASE"
   
-  INSTANTIATE_CMD_OUTPUT=$(wasmd tx wasm instantiate "$CODE_ID" "$INSTANTIATE_MSG" $INSTANTIATE_TX_FLAGS)
+  INSTANTIATE_CMD_OUTPUT=$(wasmd tx wasm instantiate "$CODE_ID" "$INSTANTIATE_MSG" $TX_FLAGS_INSTANTIATE)
 
   if ! echo "$INSTANTIATE_CMD_OUTPUT" | jq -e . > /dev/null 2>&1; then
-    echo "Error: 'wasmd tx wasm instantiate' did not return valid JSON for ${CHAIN_ID}."
+    echo "Error: 'wasmd tx wasm instantiate' command failed or did not return valid JSON for ${CHAIN_ID}."
     echo "Output: $INSTANTIATE_CMD_OUTPUT"
     return 1
   fi
-
   TX_CODE_INIT=$(echo "$INSTANTIATE_CMD_OUTPUT" | jq -r '.code')
   if [ "$TX_CODE_INIT" != "0" ]; then
-    echo "Error instantiating contract on ${CHAIN_ID} (tx code: $TX_CODE_INIT):"
-    echo "$INSTANTIATE_CMD_OUTPUT" | jq
+    echo "Error instantiating contract on ${CHAIN_ID} (tx code: $TX_CODE_INIT). Raw log:"
+    echo "$INSTANTIATE_CMD_OUTPUT" | jq -r '.raw_log'
     return 1
   fi
 
   TXHASH_INSTANTIATE=$(echo "$INSTANTIATE_CMD_OUTPUT" | jq -r '.txhash')
-   if [ -z "$TXHASH_INSTANTIATE" ] || [ "$TXHASH_INSTANTIATE" == "null" ]; then
+  if [ -z "$TXHASH_INSTANTIATE" ] || [ "$TXHASH_INSTANTIATE" == "null" ]; then
     echo "Error: Could not extract TXHASH from instantiate transaction output on ${CHAIN_ID}."
     echo "Output:"
     echo "$INSTANTIATE_CMD_OUTPUT" | jq
     return 1
   fi
   echo "Instantiate transaction submitted. TXHASH: $TXHASH_INSTANTIATE. Waiting for inclusion..."
-  sleep 6
+  sleep 7 # Increased sleep
 
   # Query the instantiate transaction to get the contract address
   echo "Querying transaction $TXHASH_INSTANTIATE for CONTRACT_ADDRESS..."
-  QUERY_INIT_TX_RESPONSE=$(wasmd query tx "$TXHASH_INSTANTIATE" --node "$NODE_RPC" --output json --home "$CHAIN_HOME_DIR")
+  QUERY_INIT_TX_RESPONSE=$(wasmd query tx "$TXHASH_INSTANTIATE" $QUERY_TX_FLAGS)
 
   if ! echo "$QUERY_INIT_TX_RESPONSE" | jq -e . > /dev/null 2>&1; then
     echo "Error: 'wasmd query tx' for instantiate did not return valid JSON for ${CHAIN_ID} tx $TXHASH_INSTANTIATE."
@@ -138,52 +164,44 @@ deploy_to_chain() {
     return 1
   fi
   
-  CONTRACT_ADDRESS=$(echo "$QUERY_INIT_TX_RESPONSE" | jq -r '.events[] | select(.type=="instantiate" or .type=="instantiate_contract") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value')
-  # Fallback for different event structures
+  # Extract contract address using the jq path from official docs for instantiate event [3]
+  CONTRACT_ADDRESS=$(echo "$QUERY_INIT_TX_RESPONSE" | jq -r '.events[] | select(.type=="instantiate") | .attributes[] | select(.key=="_contract_address") | .value')
+  # Fallback for common variations
+  if [ -z "$CONTRACT_ADDRESS" ] || [ "$CONTRACT_ADDRESS" == "null" ]; then
+    CONTRACT_ADDRESS=$(echo "$QUERY_INIT_TX_RESPONSE" | jq -r '.events[] | select(.type=="instantiate_contract") | .attributes[] | select(.key=="contract_address") | .value')
+  fi
   if [ -z "$CONTRACT_ADDRESS" ] || [ "$CONTRACT_ADDRESS" == "null" ]; then
     CONTRACT_ADDRESS=$(echo "$QUERY_INIT_TX_RESPONSE" | jq -r '.logs[0].events[] | select(.type=="instantiate" or .type=="instantiate_contract") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value')
   fi
+
   if [ -z "$CONTRACT_ADDRESS" ] || [ "$CONTRACT_ADDRESS" == "null" ]; then
-     RAW_LOG_CONTRACT_ADDRESS=$(echo "$QUERY_INIT_TX_RESPONSE" | jq -r '.raw_log | fromjson? | .[0].events[]? | select(.type=="instantiate") | .attributes[]? | select(.key=="_contract_address") | .value')
-     if [ -n "$RAW_LOG_CONTRACT_ADDRESS" ] && [ "$RAW_LOG_CONTRACT_ADDRESS" != "null" ]; then
-        echo "Found CONTRACT_ADDRESS in raw_log: $RAW_LOG_CONTRACT_ADDRESS"
-        CONTRACT_ADDRESS="$RAW_LOG_CONTRACT_ADDRESS"
-     else
-        echo "Error: Could not extract CONTRACT_ADDRESS from instantiate transaction events on ${CHAIN_ID} for tx $TXHASH_INSTANTIATE."
-        echo "Query TX Response for Instantiate:"
-        echo "$QUERY_INIT_TX_RESPONSE" | jq
-        return 1
-    fi
+    echo "Error: Could not extract CONTRACT_ADDRESS from instantiate transaction events on ${CHAIN_ID} for tx $TXHASH_INSTANTIATE."
+    echo "Query TX Response for Instantiate:"
+    echo "$QUERY_INIT_TX_RESPONSE" | jq
+    return 1
   fi
   echo "Instantiated ${DEX_NAME} on ${CHAIN_ID} at address: $CONTRACT_ADDRESS"
   sleep 2
 
-  # 4. (Optional but Recommended) Fund the DEX Contract
-  echo "Funding ${DEX_NAME} on ${CHAIN_ID} with some native and other conceptual tokens..."
-  # Note: The "other" tokens (like tokenb on chain-a) must exist in the DEPLOYER_KEY_NAME's account balance first.
-  # Your setup_all_chains.sh script funds with native tokens. For non-native (conceptual or IBC'd later),
-  # the deployer would need to acquire them first.
-  # For this example, funding with just native and assuming other tokens for rates are conceptual for now.
-  FUND_AMOUNT="100000000$NATIVE_DENOM,100000000ualpha,100000000ubeta,100000000ugamma" # Example funding, adjust based on actual available tokens
+  # 3. (Optional but Recommended) Fund the DEX Contract
+  echo "Funding ${DEX_NAME} on ${CHAIN_ID} with some native tokens..."
+  FUND_AMOUNT="100000000$NATIVE_DENOM" # Start with native token only for simplicity
+  # For other tokens (e.g., 100000000ualpha on BetaNet), DEPLOYER_KEY_NAME on BetaNet must *have* ualpha (likely via IBC)
+  # We'll handle multi-token funding in a separate step or assume DEX can operate with one-sided deposits initially
   
-  # Trim funding string if some denoms are the same as NATIVE_DENOM
-  FUND_AMOUNT_CLEANED=$(echo "$FUND_AMOUNT" | awk -F, -v RS=, -v native="$NATIVE_DENOM" '{ if ($0 ~ native && count++ > 0) {} else print }' ORS=, | sed 's/,$//')
-
-
-  FUND_TX_FLAGS="--from $DEPLOYER_KEY_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --fees 100000$NATIVE_DENOM $COMMON_TX_FLAGS"
-  FUND_CMD_OUTPUT=$(wasmd tx bank send "$DEPLOYER_KEY_NAME" "$CONTRACT_ADDRESS" "$FUND_AMOUNT_CLEANED" $FUND_TX_FLAGS)
+  TX_FLAGS_FUND="--from $DEPLOYER_KEY_NAME --chain-id $CHAIN_ID --node $NODE_RPC --home $CHAIN_HOME_DIR --fees 100000$NATIVE_DENOM $COMMON_TX_FLAGS_BASE"
+  FUND_CMD_OUTPUT=$(wasmd tx bank send "$DEPLOYER_KEY_NAME" "$CONTRACT_ADDRESS" "$FUND_AMOUNT" $TX_FLAGS_FUND)
 
   if ! echo "$FUND_CMD_OUTPUT" | jq -e . > /dev/null 2>&1; then
-    echo "Error: 'wasmd tx bank send' for funding did not return valid JSON for ${CHAIN_ID}."
+    echo "Warning: 'wasmd tx bank send' for funding did not return valid JSON for ${CHAIN_ID}."
     echo "Output: $FUND_CMD_OUTPUT"
-    # Don't exit, contract is deployed, funding might have failed due to insufficient balance of specific tokens
   else
     TX_CODE_FUND=$(echo "$FUND_CMD_OUTPUT" | jq -r '.code')
     if [ "$TX_CODE_FUND" != "0" ]; then
-      echo "Error funding contract on ${CHAIN_ID} (tx code: $TX_CODE_FUND):"
-      echo "$FUND_CMD_OUTPUT" | jq
+      echo "Warning: Error funding contract on ${CHAIN_ID} (tx code: $TX_CODE_FUND). Raw log:"
+      echo "$FUND_CMD_OUTPUT" | jq -r '.raw_log'
     else
-      echo "Funded ${DEX_NAME} on ${CHAIN_ID}."
+      echo "Attempted to fund ${DEX_NAME} on ${CHAIN_ID}."
     fi
   fi
   
@@ -194,23 +212,19 @@ deploy_to_chain() {
 }
 
 # --- Main Deployment ---
-# (Keep the rest of your script: WASM_FILE check, rm deployed_contracts.txt, calls to deploy_to_chain)
-# Ensure WASM file exists
 if [ ! -f "$WASM_FILE" ]; then
     echo "Error: WASM file not found at $WASM_FILE. Please compile the contract first."
     exit 1
 fi
 
-# Clean up previous deployment info
 rm -f deployed_contracts.txt
 
 echo "Starting contract deployments..."
-# (Calls to deploy_to_chain for Chain A, B, C as you had them)
 deploy_to_chain "$CHAIN_A_ID" "$CHAIN_A_HOME_DIR" "$CHAIN_A_NODE_RPC" "$CHAIN_A_NATIVE_DENOM" "$CHAIN_A_DEX_NAME" "$CHAIN_A_INITIAL_RATES_JSON"
 deploy_to_chain "$CHAIN_B_ID" "$CHAIN_B_HOME_DIR" "$CHAIN_B_NODE_RPC" "$CHAIN_B_NATIVE_DENOM" "$CHAIN_B_DEX_NAME" "$CHAIN_B_INITIAL_RATES_JSON"
 deploy_to_chain "$CHAIN_C_ID" "$CHAIN_C_HOME_DIR" "$CHAIN_C_NODE_RPC" "$CHAIN_C_NATIVE_DENOM" "$CHAIN_C_DEX_NAME" "$CHAIN_C_INITIAL_RATES_JSON"
 
-
-echo "--- All contract deployments attempted. ---"
-echo "Deployed contract addresses are in 'deployed_contracts.txt' and printed above."
-# ... (rest of your final messages) ...
+# echo "--- All contract deployments attempted. ---"
+# echo "Deployed contract addresses are in 'deployed_contracts.txt' and printed above."
+# echo "IMPORTANT: You will need to update your backend's config/config.go with these contract addresses."
+# echo "IMPORTANT: The 'ibc/...' denoms in INITIAL_RATES_JSON are placeholders. After setting up IBC with Hermes, you will get actual IBC denoms. You might need to update the rates in your deployed contracts using an admin execute message (if your contract supports it) or re-instantiate with correct IBC denoms for the DEX to function with IBC tokens."
