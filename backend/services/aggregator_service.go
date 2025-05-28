@@ -11,15 +11,15 @@ import (
 	"cosmos_defi_aggregator/cosmos"
 	"cosmos_defi_aggregator/models"
 	"cosmos_defi_aggregator/utils"
+	"cosmos_defi_aggregator/math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // GetDexRate queries a specific DEX contract for an exchange rate.
-func GetDexRate(ctx context.Context, chainID, fromToken, toToken string) (sdk.Dec, error) {
+func GetDexRate(ctx context.Context, chainID, fromToken, toToken string) (math.LegacyDec, error) {
 	chainCfg, found := config.GetChain(chainID)
 	if !found {
-		return sdk.Dec{}, fmt.Errorf("chain config not found for ID: %s", chainID)
+		return math.LegacyDec{}, fmt.Errorf("chain config not found for ID: %s", chainID)
 	}
 
 	// Construct the query message for your mock_dex contract
@@ -36,24 +36,24 @@ func GetDexRate(ctx context.Context, chainID, fromToken, toToken string) (sdk.De
 	}
 	queryBytes, err := json.Marshal(queryPayload)
 	if err != nil {
-		return sdk.Dec{}, fmt.Errorf("failed to marshal GetRate query: %w", err)
+		return math.LegacyDec{}, fmt.Errorf("failed to marshal GetRate query: %w", err)
 	}
 
 	responseData, err := cosmos.QueryContractWithIgnite(ctx, chainID, chainCfg.DexContract, queryBytes)
 	if err != nil {
-		return sdk.Dec{}, fmt.Errorf("QueryContractWithIgnite failed for %s DEX: %w", chainID, err)
+		return math.LegacyDec{}, fmt.Errorf("QueryContractWithIgnite failed for %s DEX: %w", chainID, err)
 	}
 
 	var rateResp struct {
 		Rate string `json:"rate"`
 	}
 	if err := json.Unmarshal(responseData, &rateResp); err != nil {
-		return sdk.Dec{}, fmt.Errorf("failed to unmarshal rate response from %s DEX: %w. Data: %s", chainID, err, string(responseData))
+		return math.LegacyDec{}, fmt.Errorf("failed to unmarshal rate response from %s DEX: %w. Data: %s", chainID, err, string(responseData))
 	}
 
 	rate, err := utils.StringToSDKDec(rateResp.Rate)
 	if err != nil {
-		return sdk.Dec{}, fmt.Errorf("invalid rate format '%s' from %s DEX: %w", rateResp.Rate, chainID, err)
+		return math.LegacyDec{}, fmt.Errorf("invalid rate format '%s' from %s DEX: %w", rateResp.Rate, chainID, err)
 	}
 	return rate, nil
 }
