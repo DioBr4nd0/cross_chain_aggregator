@@ -9,8 +9,8 @@ import (
 
 	wasmtypes "cosmos_defi_aggregator/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	// transfertypes "github.com/cosmos/ibc-go/v7/modules/apps/transfer/types"
-	// clienttypes "github.com/cosmos/ibc-go/v7/modules/core/02-client/types"
+	transfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 
 	"cosmos_defi_aggregator/config"
 	"cosmos_defi_aggregator/cosmos"
@@ -42,8 +42,10 @@ func executeIBCTransferViaIgnite(
 	if err != nil { return "", err }
 	operatorAccount, err := igniteClient.Account(fromChainCfg.OperatorKeyName)
 	if err != nil { return "", fmt.Errorf("could not get operator account %s for IBC on %s: %w", fromChainCfg.OperatorKeyName, fromChainID, err)}
-	actualSenderOnFromChain := operatorAccount.Address(fromChainCfg.AccountPrefix)
-
+	actualSenderOnFromChain, err := operatorAccount.Address(fromChainCfg.AccountPrefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to get address: %v",err)
+	}
 
 	timeoutHeight := clienttypes.ZeroHeight()
 	timeoutTimestamp := uint64(time.Now().Add(10 * time.Minute).UnixNano())
@@ -86,8 +88,10 @@ func executeDexSwapViaIgnite(
 	if err != nil { return models.ExecuteSwapResponse{Status: "failed"}, err }
 	operatorAccount, err := igniteClient.Account(chainCfg.OperatorKeyName)
 	if err != nil { return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("could not get operator account %s for DEX swap on %s: %w", chainCfg.OperatorKeyName, chainID, err)}
-	actualSenderOnChain := operatorAccount.Address(chainCfg.AccountPrefix)
-
+	actualSenderOnChain, err := operatorAccount.Address(chainCfg.AccountPrefix)
+	if err != nil{
+		return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("failed to get sender: %v",actualSenderOnChain)
+	}
 
 	swapPayload := struct {
 		Swap struct {
@@ -105,11 +109,14 @@ func executeDexSwapViaIgnite(
 		return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("failed to marshal DEX swap msg: %w", err)
 	}
 
-	msg := &wasmtypes.MsgExecuteContract{
+	execMsg := &wasmtypes.MsgExecuteContract{
 		Sender:   actualSenderOnChain, // Actual signer
 		Contract: chainCfg.DexContract,
 		Msg:      wasmtypes.RawContractMessage(executeMsgJSON),
 		Funds:    sdk.NewCoins(coinToSendToDex),
+	}
+	msg := wasmtypes.MsgExecuteContractWrapper{
+    MsgExecuteContract: execMsg,
 	}
 	if err := msg.ValidateBasic(); err != nil {
 		return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("invalid MsgExecuteContract: %w", err)

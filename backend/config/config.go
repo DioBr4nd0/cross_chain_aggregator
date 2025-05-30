@@ -37,41 +37,42 @@ var GlobalAppConfig AppConfiguration
 // InitAppConfig initializes the application configuration.
 // This should be called once at application startup.
 func InitAppConfig() {
-	// ACTION: Replace DexContract addresses with your actual deployed contract addresses.
-	// ACTION: Ensure HomeDir paths are correct for your environment.
-	// ACTION: Ensure OperatorKeyName is the key you created (e.g., "backendop").
-	// ACTION: Ensure GasPrices and FeeDenom are appropriate for your chains.
 	GlobalAppConfig.Chains = map[string]ChainConfig{
 		"alphanet-1": {
 			ID: "alphanet-1", Name: "AlphaNet", RPCEndpoint: "http://localhost:26657", GRPCEndpoint: "localhost:9090",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.alphanet", OperatorKeyName: "backendop", FeeDenom: "ualpha", GasPrices: "0.025ualpha",
-			DexContract:   "wasm1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqr5j2ht", // EXAMPLE - UPDATE!
-			SupportedTokens: []string{"ualpha", "ibc/BetaOnAlpha", "ibc/GammaOnAlpha"},
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
+			SupportedTokens: []string{"ualpha", "ibc/BetaOnAlpha", "ibc/GammaOnAlpha"}, // Conceptual IBC denoms
 		},
 		"betanet-1": {
 			ID: "betanet-1", Name: "BetaNet", RPCEndpoint: "http://localhost:27657", GRPCEndpoint: "localhost:9190",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.betanet", OperatorKeyName: "backendop", FeeDenom: "ubeta", GasPrices: "0.025ubeta",
-			DexContract:   "wasm1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqr5j2ht", // EXAMPLE - UPDATE!
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
 			SupportedTokens: []string{"ubeta", "ibc/AlphaOnBeta", "ibc/GammaOnBeta"},
 		},
 		"gammanet-1": {
 			ID: "gammanet-1", Name: "GammaNet", RPCEndpoint: "http://localhost:28657", GRPCEndpoint: "localhost:9290",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.gammanet", OperatorKeyName: "backendop", FeeDenom: "ugamma", GasPrices: "0.025ugamma",
-			DexContract:   "wasm1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqr5j2ht", // EXAMPLE - UPDATE!
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
 			SupportedTokens: []string{"ugamma", "ibc/AlphaOnGamma", "ibc/BetaOnGamma"},
 		},
 	}
 
-	// ACTION: Update ChannelIDs after Hermes setup.
+	// Corrected ChannelIDs based on typical Hermes behavior for the manual script
 	GlobalAppConfig.IBCChannels = []IBCChannelConfig{
+		// AlphaNet <-> BetaNet
 		{FromChainID: "alphanet-1", ToChainID: "betanet-1", ChannelID: "channel-0", PortID: "transfer"},
 		{FromChainID: "betanet-1", ToChainID: "alphanet-1", ChannelID: "channel-0", PortID: "transfer"},
-		{FromChainID: "betanet-1", ToChainID: "gammanet-1", ChannelID: "channel-1", PortID: "transfer"},
-		{FromChainID: "gammanet-1", ToChainID: "betanet-1", ChannelID: "channel-1", PortID: "transfer"},
-		{FromChainID: "alphanet-1", ToChainID: "gammanet-1", ChannelID: "channel-2", PortID: "transfer"},
-		{FromChainID: "gammanet-1", ToChainID: "alphanet-1", ChannelID: "channel-2", PortID: "transfer"},
+
+		// BetaNet <-> GammaNet
+		{FromChainID: "betanet-1", ToChainID: "gammanet-1", ChannelID: "channel-0", PortID: "transfer"}, // This is channel-0 on BetaNet's *new connection* to GammaNet
+		{FromChainID: "gammanet-1", ToChainID: "betanet-1", ChannelID: "channel-0", PortID: "transfer"}, // This is channel-0 on GammaNet's *first connection* (to BetaNet)
+
+		// AlphaNet <-> GammaNet
+		{FromChainID: "alphanet-1", ToChainID: "gammanet-1", ChannelID: "channel-0", PortID: "transfer"}, // This is channel-0 on AlphaNet's *new connection* to GammaNet
+		{FromChainID: "gammanet-1", ToChainID: "alphanet-1", ChannelID: "channel-0", PortID: "transfer"}, // This is channel-0 on GammaNet's *new connection* to AlphaNet
 	}
-	fmt.Println("Application configuration initialized.")
+	fmt.Println("Application configuration initialized with corrected IBC Channel IDs.")
 }
 
 // GetChain retrieves a chain configuration by its ID.

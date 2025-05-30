@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-जग">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmos DeFi Aggregator</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome for social icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1><span class="logo-icon">🌌</span> Cosmos DeFi Aggregator</h1>
+            <div class="social-links">
+                <a href="https://github.com/yourusername" target="_blank" title="GitHub"><i class="fab fa-github"></i></a>
+                <a href="https://linkedin.com/in/yourprofile" target="_blank" title="LinkedIn"><i class="fab fa-linkedin"></i></a>
+                <a href="https://twitter.com/yourhandle" target="_blank" title="Twitter"><i class="fab fa-twitter"></i></a>
+            </div>
+        </header>
+
+        <main>
+            <div class="swap-card">
+                <h2>Cross-Chain Swap</h2>
+                <div class="form-group">
+                    <label for="fromChain">From Chain:</label>
+                    <select id="fromChain">
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="fromToken">From Token:</label>
+                    <div class="token-input">
+                        <select id="fromToken">
+                            <!-- Options will be populated by JS -->
+                        </select>
+                        <input type="number" id="amountIn" placeholder="Amount" min="0" step="any">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="toToken">To Token:</label>
+                    <select id="toToken">
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+
+                <button id="checkRateButton">Check Best Rate & Route</button>
+
+                <div id="route-visualization" class="route-visualization">
+                    <!-- Dynamic route path will be injected here -->
+                </div>
+
+                <div id="results-display" class="results-display">
+                    <!-- Results and swap button will appear here -->
+                </div>
+                <div id="status-message" class="status-message"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 Your Name/Project. Built for Hackathon.</p>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

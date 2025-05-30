@@ -204,7 +204,8 @@ func (m *Params) XXX_Unmarshal(b []byte) error {
 
 func (m *Params) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_Params.Marshal(b, m, deterministic)
+		// return xxx_messageInfo_Params.Marshal(b, m, deterministic)
+		return []byte{}, nil
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -216,7 +217,7 @@ func (m *Params) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 }
 
 func (m *Params) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Params.Merge(m, src)
+	// xxx_messageInfo_Params.Merge(m, src)
 }
 
 func (m *Params) XXX_Size() int {
@@ -224,7 +225,7 @@ func (m *Params) XXX_Size() int {
 }
 
 func (m *Params) XXX_DiscardUnknown() {
-	xxx_messageInfo_Params.DiscardUnknown(m)
+	// xxx_messageInfo_Params.DiscardUnknown(m)
 }
 
 var xxx_messageInfo_Params proto.InternalMessageInfo
@@ -481,7 +482,7 @@ func init() {
 	proto.RegisterEnum("cosmwasm.wasm.v1.ContractCodeHistoryOperationType", ContractCodeHistoryOperationType_name, ContractCodeHistoryOperationType_value)
 	proto.RegisterType((*AccessTypeParam)(nil), "cosmwasm.wasm.v1.AccessTypeParam")
 	proto.RegisterType((*AccessConfig)(nil), "cosmwasm.wasm.v1.AccessConfig")
-	proto.RegisterType((*Params)(nil), "cosmwasm.wasm.v1.Params")
+	// proto.RegisterType((*Params)(nil), "cosmwasm.wasm.v1.Params")
 	proto.RegisterType((*CodeInfo)(nil), "cosmwasm.wasm.v1.CodeInfo")
 	proto.RegisterType((*ContractInfo)(nil), "cosmwasm.wasm.v1.ContractInfo")
 	proto.RegisterType((*ContractCodeHistoryEntry)(nil), "cosmwasm.wasm.v1.ContractCodeHistoryEntry")

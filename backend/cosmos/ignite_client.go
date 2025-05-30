@@ -24,7 +24,8 @@ func InitializeIgniteClients(ctx context.Context) error {
 			cosmosclient.WithAddressPrefix(chainCfg.AccountPrefix),
 			cosmosclient.WithNodeAddress(chainCfg.RPCEndpoint), // Tendermint RPC for tx broadcasting
 			cosmosclient.WithHome(chainCfg.HomeDir),           // For keyring access
-			cosmosclient.WithKeyringBackend(cosmosclient.KeyringTest),
+			// TODO : test keyring??
+			// cosmosclient.WithKeyringBackend(cosmosclient.KeyringTest),
 			cosmosclient.WithGas("auto"), // Default gas estimation
 			cosmosclient.WithGasAdjustment(1.5),
 			// Fees can be tricky with auto gas. If BroadcastTx fails on fees, set them here.

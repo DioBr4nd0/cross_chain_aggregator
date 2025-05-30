@@ -1,0 +1,337 @@
+/* Define color palette using CSS Custom Properties (Variables) */
+:root {
+    --bg-primary: #1a1b26; /* Very dark blue/gray - main background */
+    --bg-secondary: #2a2c3d; /* Slightly lighter - card backgrounds, etc. */
+    --bg-tertiary: #393b52; /* Even lighter - for subtle backgrounds or borders */
+
+    --text-primary: #c0c5ce; /* Light gray for main text */
+    --text-secondary: #a0a8b5; /* Muted gray for secondary text, labels */
+    --text-accent: #82aaff; /* A nice blue for accents, links, highlights */
+    --text-on-accent-bg: #ffffff; /* White text on accent backgrounds */
+
+    --border-color: #414561; /* Border for inputs, cards */
+    --border-focus-color: var(--text-accent);
+
+    --accent-primary: #82aaff; /* Primary action color (e.g., buttons) */
+    --accent-secondary: #7dcfff; /* A lighter blue for secondary actions or hover */
+
+    --status-loading-bg: #4a4137; /* Darker yellow */
+    --status-loading-text: #ffd700; /* Gold */
+    --status-loading-border: #a08237;
+
+    --status-error-bg: #4d3135; /* Darker red */
+    --status-error-text: #ff757f; /* Lighter red/pink */
+    --status-error-border: #a04a50;
+
+    --status-success-bg: #2c4a3b; /* Darker green */
+    --status-success-text: #79ffa0; /* Lighter green */
+    --status-success-border: #407a5c;
+
+    --shadow-color: rgba(0, 0, 0, 0.3); /* Darker shadow for dark theme */
+    --logo-stroke-color: var(--bg-secondary); /* For SVG logo outlines if needed */
+}
+
+body {
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Modern sans-serif */
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding-top: 30px; /* More space at the top */
+    padding-bottom: 30px;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.app-container {
+    width: 100%;
+    max-width: 650px; /* Slightly narrower for a focused look */
+    background-color: var(--bg-secondary);
+    border-radius: 16px; /* Softer corners */
+    box-shadow: 0 12px 35px var(--shadow-color);
+    overflow: hidden;
+}
+
+header {
+    background: linear-gradient(135deg, var(--accent-secondary) 0%, var(--accent-primary) 100%);
+    color: var(--text-on-accent-bg);
+    padding: 25px 35px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color); /* Subtle separation */
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.7em; /* Slightly smaller */
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.logo-icon {
+    margin-right: 12px;
+    font-size: 1.6em;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.2)); /* Subtle shadow for icon */
+}
+
+.social-links a {
+    color: var(--text-on-accent-bg);
+    margin-left: 18px;
+    font-size: 1.4em;
+    transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.social-links a:hover {
+    color: #ffffff; /* Brighter on hover */
+    transform: translateY(-2px);
+}
+
+main {
+    padding: 30px 35px;
+}
+
+.swap-card {
+    /* No separate background, inherits from app-container or main */
+    padding: 0; /* Remove padding if it's just a logical container now */
+}
+
+.swap-card h2 {
+    text-align: center;
+    color: var(--text-primary);
+    margin-top: 0;
+    margin-bottom: 30px;
+    font-weight: 600;
+    font-size: 1.5em;
+}
+
+.form-group {
+    margin-bottom: 22px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 0.95em;
+}
+
+.form-group select,
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 14px; /* More padding */
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px; /* Softer corners */
+    box-sizing: border-box;
+    font-size: 1em;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-group select:focus,
+.form-group input[type="number"]:focus {
+    border-color: var(--border-focus-color);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(130, 170, 255, 0.25); /* Using text-accent with opacity */
+}
+
+/* Remove default arrow for select and add custom one */
+.form-group select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23a0a8b5%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22%2F%3E%3C%2Fsvg%3E');
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 12px auto;
+    padding-right: 40px; /* Space for custom arrow */
+}
+
+
+.token-input {
+    display: flex;
+    gap: 12px;
+}
+
+.token-input select {
+    flex-grow: 1;
+}
+
+.token-input input[type="number"] {
+    flex-basis: 160px;
+    flex-grow: 0;
+}
+
+button {
+    width: 100%;
+    padding: 15px; /* Slightly more padding */
+    background: linear-gradient(135deg, var(--accent-secondary) 0%, var(--accent-primary) 100%);
+    color: var(--text-on-accent-bg);
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s ease, transform 0.1s ease;
+    margin-top: 15px;
+    letter-spacing: 0.5px;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+button:active {
+    transform: translateY(1px);
+    opacity: 1;
+}
+
+button:disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.route-visualization {
+    margin-top: 30px;
+    margin-bottom: 30px;
+    padding: 20px;
+    background-color: var(--bg-primary); /* Darker than card for contrast */
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    min-height: 80px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.route-step {
+    display: flex;
+    flex-direction: column; /* Stack logo and name */
+    align-items: center;
+    text-align: center;
+    gap: 6px; /* Space between logo and name */
+}
+
+.route-step img.logo {
+    width: 40px; /* Consistent logo size */
+    height: 40px;
+    border-radius: 50%;
+    /* For SVGs with their own background/stroke, this might not be needed */
+    /* background-color: var(--bg-secondary); 
+    border: 2px solid var(--border-color); */
+    padding: 2px; /* If SVGs don't have enough internal padding */
+}
+.route-step img.ibc-logo {
+    width: 32px;
+    height: 32px;
+    align-self: center; /* Ensure arrow is centered vertically if flex items have different heights */
+}
+
+.route-step span.chain-name {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    max-width: 80px; /* Prevent long names from breaking layout */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.route-arrow { /* This is now the ibc-logo */
+    /* Styling primarily handled by .ibc-logo if it's an img */
+}
+
+
+.results-display {
+    margin-top: 25px;
+    padding: 20px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.95em;
+    line-height: 1.7;
+}
+
+.results-display h4 {
+    margin-top: 0;
+    color: var(--text-accent);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+.results-display p {
+    margin: 8px 0;
+}
+.results-display p strong {
+    color: var(--text-secondary);
+    min-width: 150px; /* Align keys */
+    display: inline-block;
+}
+
+.results-display ul {
+    padding-left: 20px;
+    margin-top: 5px;
+}
+.results-display li {
+    margin-bottom: 4px;
+}
+
+.status-message {
+    margin-top: 20px;
+    padding: 12px 15px;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+    border-width: 1px;
+    border-style: solid;
+}
+
+.status-message.loading {
+    background-color: var(--status-loading-bg);
+    color: var(--status-loading-text);
+    border-color: var(--status-loading-border);
+}
+
+.status-message.error {
+    background-color: var(--status-error-bg);
+    color: var(--status-error-text);
+    border-color: var(--status-error-border);
+}
+
+.status-message.success {
+    background-color: var(--status-success-bg);
+    color: var(--status-success-text);
+    border-color: var(--status-success-border);
+}
+
+
+footer {
+    text-align: center;
+    padding: 25px;
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    background-color: var(--bg-primary); /* Match body for seamlessness or var(--bg-secondary) */
+    border-top: 1px solid var(--border-color);
+}
+
+/* Input number spinner removal (optional) */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield; /* Firefox */
+}

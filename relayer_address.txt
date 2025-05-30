@@ -1,0 +1,3 @@
+AlphaNet Relayer Address: wasm1msq9cmxmwa3qqthsws3gjde6gstkw8fhj20j6p
+BetaNet Relayer Address: wasm187cjkyky525d0jpd58f58vtum4fdxn7jyfchf2
+GammaNet Relayer Address: wasm1f0sfpfgqv8khjlrpmxqxwlt356jgy8su3dn47e
