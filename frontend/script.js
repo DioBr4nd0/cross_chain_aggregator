@@ -2,7 +2,7 @@ const API_BASE_URL = "http://localhost:8080/api/v1";
 
 // Global state
 let allChainsData = [];
-let allTokensWithDetails = [];
+let allTokensWithDetails = []; // Will store [{id, name (descriptive), logo, originChainId (for native), onChainId (for IBC)}, ...]
 let currentBestRouteData = null;
 
 // DOM Elements
@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 
 async function initializeApp() {
     showStatus("Initializing: Loading chain and token data...", "loading");
-    checkRouteButton.disabled = true; // Disable until loaded
+    checkRouteButton.disabled = true;
     try {
         const chainsResponse = await fetch(`${API_BASE_URL}/chains`);
         if (!chainsResponse.ok) throw new Error(`Failed to fetch chains: ${chainsResponse.statusText}`);
@@ -29,38 +29,36 @@ async function initializeApp() {
         }
         populateChainSelect(fromChainSelect, allChainsData);
 
+        // Assuming /tokens returns { supportedTokens: ["id1", "id2", "ibc/denomOnChainX", "ibc/denomOnChainY"] }
+        // These IDs are the actual denoms your backend and contracts use.
         const tokensResponse = await fetch(`${API_BASE_URL}/tokens`);
         if (!tokensResponse.ok) throw new Error(`Failed to fetch tokens: ${tokensResponse.statusText}`);
         const tokenListPayload = await tokensResponse.json();
         if (!tokenListPayload || !Array.isArray(tokenListPayload.supportedTokens)) {
             throw new Error("Tokens data format from API is incorrect.");
         }
+        
+        // deriveTokenDetails will now try to create very descriptive names
         allTokensWithDetails = deriveTokenDetails(tokenListPayload.supportedTokens, allChainsData);
 
-        // Set default for "From Chain" and trigger dependent dropdown updates
         if (allChainsData.length > 0) {
-            fromChainSelect.value = allChainsData[0].id; // Default to first chain
+            fromChainSelect.value = allChainsData[0].id;
         }
-        await updateFromTokenOptions(); // Ensure this completes and sets a default fromToken
-        await populateToTokenOptions();   // Ensure this completes and sets a default toToken
+        await updateFromTokenOptions(); // Populates fromToken based on fromChain
+        // populateToTokenOptions will be called by updateFromTokenOptions
 
-        // Set a default amount for easier testing
-        amountInInput.value = "1000000"; // Default amount, e.g., 1 native token unit
+        amountInInput.value = "1000000"; // Default amount
 
-        fromChainSelect.addEventListener('change', async () => {
-            await updateFromTokenOptions();
-            // No need to explicitly call populateToTokenOptions here, updateFromTokenOptions does it
-        });
-        fromTokenSelect.addEventListener('change', populateToTokenOptions); // Re-filter 'To Token'
+        fromChainSelect.addEventListener('change', updateFromTokenOptions);
+        fromTokenSelect.addEventListener('change', populateToTokenOptions);
         checkRouteButton.addEventListener('click', handleCheckBestRoute);
         
-        showStatus("Ready to find routes!", "success", 2000);
-        checkRouteButton.disabled = false; // Enable after successful load
+        showStatus("Ready!", "success", 2000);
+        checkRouteButton.disabled = false;
 
     } catch (error) {
         console.error("Initialization Error:", error);
-        showStatus(`Initialization Error: ${error.message}. Ensure backend is running and APIs are correct.`, "error");
-        // Keep button disabled if init fails
+        showStatus(`Initialization Error: ${error.message}. Ensure backend is running.`, "error");
     }
 }
 
@@ -68,59 +66,86 @@ function deriveTokenDetails(tokenIds, chains) {
     const detailedTokens = [];
     const seenIds = new Set();
 
-    if (!Array.isArray(tokenIds)) {
-        console.error("deriveTokenDetails: tokenIds is not an array", tokenIds);
+    if (!Array.isArray(tokenIds) || !Array.isArray(chains)) {
+        console.error("deriveTokenDetails: Invalid input", tokenIds, chains);
         return detailedTokens;
     }
 
     tokenIds.forEach(id => {
         if (seenIds.has(id) || typeof id !== 'string') return;
 
-        let name = id.toUpperCase().replace(/^U/, '');
-        let logo = `logos/${id.split('/')[0]}.svg`;
-        let originChainId = null;
+        let name = id; // Default to ID if no better name found
+        let logo = `logos/unknown.svg`; // Default logo
+        let originChainId = null; // For native tokens
+        let onChainId = null; // For IBC tokens, which chain they are currently "on"
 
+        // Check if it's a native token of any configured chain
         const nativeChain = chains.find(c => c.nativeToken === id);
         if (nativeChain) {
-            name = `${name} (${nativeChain.name.split(' ')[0]})`;
+            name = `${id.replace(/^u/, '').toUpperCase()} (Native on ${nativeChain.name})`;
+            logo = `logos/${id}.svg`; // e.g., ualpha.svg
             originChainId = nativeChain.id;
-            logo = `logos/${id}.svg`;
+            onChainId = nativeChain.id; // Native token is "on" its origin chain
         } else if (id.startsWith("ibc/")) {
-            const conceptualName = id.split('/')[1] || "UnknownIBC"; // e.g. BetaOnAlpha
-            let baseName = conceptualName;
-            if (conceptualName.includes("On")) {
-                baseName = conceptualName.substring(0, conceptualName.indexOf("On")); // e.g. Beta
-            }
-            name = `${baseName.toUpperCase()} (IBC)`;
-            const potentialNativeDenom = `u${baseName.toLowerCase()}`;
-            if (chains.find(c => c.nativeToken === potentialNativeDenom)) {
-                logo = `logos/${potentialNativeDenom}.svg`;
+            // Attempt to parse conceptual IBC denoms like "ibc/BetaOnAlpha"
+            // id = "ibc/BetaOnAlpha" -> conceptual_base_denom="ubeta", on_chain_name="AlphaNet"
+            const parts = id.split('/'); // ["ibc", "BetaOnAlpha"]
+            if (parts.length === 2) {
+                const conceptualName = parts[1]; // "BetaOnAlpha"
+                const nameParts = conceptualName.match(/^([A-Za-z]+)On([A-Za-z]+)$/); // ["BetaOnAlpha", "Beta", "Alpha"]
+                if (nameParts && nameParts.length === 3) {
+                    const baseTokenName = nameParts[1]; // "Beta"
+                    const onChainShortName = nameParts[2]; // "Alpha"
+
+                    const originChainOfBaseToken = chains.find(c => c.name.startsWith(baseTokenName));
+                    const currentChainTokenIsOn = chains.find(c => c.name.startsWith(onChainShortName));
+
+                    if (originChainOfBaseToken && currentChainTokenIsOn) {
+                        name = `${baseTokenName.toUpperCase()} (on ${currentChainTokenIsOn.name} via IBC from ${originChainOfBaseToken.name})`;
+                        logo = `logos/${originChainOfBaseToken.nativeToken}.svg`; // Logo of the original token
+                        originChainId = originChainOfBaseToken.id;
+                        onChainId = currentChainTokenIsOn.id;
+                    } else {
+                        name = `${id} (IBC)`; // Fallback if conceptual parsing fails
+                        logo = `logos/ibc.svg`;
+                    }
+                } else {
+                    name = `${id} (IBC)`; // Fallback for non-standard conceptual names
+                    logo = `logos/ibc.svg`;
+                }
             } else {
-                logo = "logos/ibc.svg";
+                 name = `${id} (IBC Hash)`; // Actual IBC hash
+                 logo = `logos/ibc.svg`;
             }
         } else {
-             // Handle conceptual tokens like "tokena"
-            const firstChar = id.charAt(0); // "t" from "tokena"
-            const baseTokenLetter = id.substring(5); // "a" from "tokena"
-            const potentialNativeToken = `u${baseTokenLetter}lpha`; // Assuming 'a' -> alpha, 'b' -> beta etc.
-
-            if (firstChar === 't' && baseTokenLetter.length === 1) {
-                let nativeMatch = null;
-                if (baseTokenLetter === 'a') nativeMatch = chains.find(c => c.nativeToken === 'ualpha');
-                else if (baseTokenLetter === 'b') nativeMatch = chains.find(c => c.nativeToken === 'ubeta');
-                else if (baseTokenLetter === 'c') nativeMatch = chains.find(c => c.nativeToken === 'ugamma');
-
-                if (nativeMatch) {
-                    name = `${nativeMatch.nativeToken.replace(/^u/,'').toUpperCase()} (Conceptual)`;
-                    logo = `logos/${nativeMatch.nativeToken}.svg`;
-                }
-            }
+             // Handle other supported tokens if they are not native or standard "ibc/Concept"
+             // This might be for your "tokena", "tokenb" if they are still used.
+             // Try to find if this token is listed as a "supportedToken" on a specific chain
+             // and infer its nature. This part is tricky without more context on "tokena".
+             let foundOnChain = null;
+             for (const chain of chains) {
+                 if(chain.supportedTokens.includes(id)){
+                     foundOnChain = chain;
+                     break;
+                 }
+             }
+             if(foundOnChain){
+                name = `${id.toUpperCase()} (on ${foundOnChain.name})`;
+                // Try to guess logo based on convention or map
+                const potentialNative = `u${id.replace('token','').toLowerCase()}`; // e.g. ualpha from tokena
+                const logoChain = chains.find(c => c.nativeToken === potentialNative);
+                if(logoChain) logo = `logos/${logoChain.nativeToken}.svg`;
+             } else {
+                name = id.toUpperCase(); // Generic fallback
+             }
         }
-        detailedTokens.push({ id, name, logo, originChainId });
+
+        detailedTokens.push({ id, name, logo, originChainId, onChainId });
         seenIds.add(id);
     });
     return detailedTokens;
 }
+
 
 function populateChainSelect(selectElement, chains) {
     selectElement.innerHTML = '<option value="">-- Select From Chain --</option>';
@@ -136,57 +161,68 @@ function populateChainSelect(selectElement, chains) {
     });
 }
 
-async function updateFromTokenOptions() { // Make async if fetching involved, though not here
+async function updateFromTokenOptions() {
     const selectedChainId = fromChainSelect.value;
     fromTokenSelect.innerHTML = '<option value="">-- Select From Token --</option>';
     
     if (!selectedChainId) {
-        await populateToTokenOptions();
+        await populateToTokenOptions(); // Update "To Token" with all tokens if no "From Chain"
         return;
     }
 
     const selectedChain = allChainsData.find(c => c.id === selectedChainId);
     if (selectedChain && Array.isArray(selectedChain.supportedTokens)) {
-        selectedChain.supportedTokens.forEach(tokenId => {
-            const tokenInfo = allTokensWithDetails.find(t => t.id === tokenId) || 
-                              { id: tokenId, name: tokenId.toUpperCase().replace(/^U/, ''), logo: `logos/${tokenId}.svg` };
-            const option = document.createElement('option');
-            option.value = tokenInfo.id;
-            option.textContent = tokenInfo.name;
-            fromTokenSelect.appendChild(option);
+        // Iterate through allTokensWithDetails and filter those whose ID is in selectedChain.supportedTokens
+        // OR whose onChainId matches the selectedChainId (for IBC tokens residing on this chain)
+        // OR whose originChainId matches (for native tokens of this chain)
+        allTokensWithDetails.forEach(tokenInfo => {
+            if (selectedChain.supportedTokens.includes(tokenInfo.id) || 
+                tokenInfo.onChainId === selectedChainId || // If it's an IBC token residing on this chain
+                tokenInfo.originChainId === selectedChainId // If it's native to this chain
+                ) {
+                const option = document.createElement('option');
+                option.value = tokenInfo.id;
+                option.textContent = tokenInfo.name; // Use the descriptive name
+                fromTokenSelect.appendChild(option);
+            }
         });
     }
     
     if (fromTokenSelect.options.length > 1) {
-        fromTokenSelect.selectedIndex = 1; // Default to the first actual token
-    } else if (fromTokenSelect.options.length === 1 && selectedChain && selectedChain.nativeToken) {
-        // If supportedTokens was empty but chain has a native token, add it as a fallback
-        const nativeTokenInfo = allTokensWithDetails.find(t => t.id === selectedChain.nativeToken) ||
-                                { id: selectedChain.nativeToken, name: selectedChain.nativeToken.toUpperCase().replace(/^U/, ''), logo: `logos/${selectedChain.nativeToken}.svg`};
-        const option = document.createElement('option');
-        option.value = nativeTokenInfo.id;
-        option.textContent = nativeTokenInfo.name;
-        fromTokenSelect.appendChild(option);
         fromTokenSelect.selectedIndex = 1;
     }
-    await populateToTokenOptions(); // Refresh "To Token" options
+    await populateToTokenOptions();
 }
 
-async function populateToTokenOptions() { // Make async if fetching involved
+async function populateToTokenOptions() {
     const currentFromTokenId = fromTokenSelect.value;
+    const currentFromChainId = fromChainSelect.value;
     toTokenSelect.innerHTML = '<option value="">-- Select To Token --</option>';
 
     allTokensWithDetails.forEach(token => {
+        // Basic filter: don't swap to the exact same token ID.
+        // More advanced: don't swap to the same token if it's on the same chain.
         if (token.id !== currentFromTokenId) {
-            const option = document.createElement('option');
-            option.value = token.id;
-            option.textContent = token.name;
-            toTokenSelect.appendChild(option);
+            // Additionally, if fromToken is native, don't show its IBC representation on the same chain as a "toToken"
+            const fromTokenDetails = allTokensWithDetails.find(t => t.id === currentFromTokenId);
+            if (fromTokenDetails && fromTokenDetails.originChainId === currentFromChainId && // fromToken is native
+                token.originChainId === fromTokenDetails.originChainId && // toToken has same origin
+                token.onChainId === currentFromChainId && // toToken is on the same current chain
+                token.id !== fromTokenDetails.id // and it's an IBC representation
+            ) {
+                // Skip e.g. ualpha (Native on AlphaNet) -> ALPHA (on AlphaNet via IBC from AlphaNet)
+                // This case should ideally not exist in allTokensWithDetails if derivation is perfect.
+            } else {
+                const option = document.createElement('option');
+                option.value = token.id;
+                option.textContent = token.name; // Use the descriptive name
+                toTokenSelect.appendChild(option);
+            }
         }
     });
     if (toTokenSelect.options.length > 1) {
-        // Try to select a different token than fromToken, if possible
-        if (currentFromTokenId === toTokenSelect.options[1].value && toTokenSelect.options.length > 2) {
+        // Try to pick a default different from fromToken
+        if (toTokenSelect.options[1].value === currentFromTokenId && toTokenSelect.options.length > 2) {
             toTokenSelect.selectedIndex = 2;
         } else {
             toTokenSelect.selectedIndex = 1;
@@ -194,11 +230,14 @@ async function populateToTokenOptions() { // Make async if fetching involved
     }
 }
 
+// --- API Call Handlers (handleCheckBestRoute, handleExecuteSwap) remain largely the same ---
+// Ensure they use fromTokenSelect.value, toTokenSelect.value which are the IDs.
+// The user sees the descriptive names, but the value sent to backend is the actual denom.
 
 async function handleCheckBestRoute() {
     const fromChainID = fromChainSelect.value;
-    const fromToken = fromTokenSelect.value;
-    const toToken = toTokenSelect.value;
+    const fromToken = fromTokenSelect.value; // This is the ID, e.g., "ualpha" or "ibc/BetaOnAlpha"
+    const toToken = toTokenSelect.value;     // This is the ID
     const amountIn = amountInInput.value;
 
     if (!fromChainID) { showStatus("Please select a 'From Chain'.", "error", 4000); return; }
@@ -225,7 +264,7 @@ async function handleCheckBestRoute() {
             try {
                 const errorData = JSON.parse(responseText);
                 errorMsg = errorData.error || errorData.message || errorMsg;
-            } catch (e) { /* responseText might not be JSON */ errorMsg = `${errorMsg} - Response: ${responseText.substring(0,100)}...` }
+            } catch (e) { errorMsg = `${errorMsg} - Response: ${responseText.substring(0,100)}...` }
             throw new Error(errorMsg);
         }
         currentBestRouteData = JSON.parse(responseText);
@@ -235,7 +274,7 @@ async function handleCheckBestRoute() {
         }
 
         displayRouteVisualization(currentBestRouteData.bestRoute);
-        displayRouteResults(currentBestRouteData); // This adds the "Execute Swap" button
+        displayRouteResults(currentBestRouteData);
         showStatus("Best route found!", "success", 3000);
 
     } catch (error) {
@@ -252,28 +291,26 @@ async function handleExecuteSwap() {
         return;
     }
 
-    const { fromToken, toToken, amountIn } = currentBestRouteData;
-    const fromChainID = fromChainSelect.value; // This is where the tokens originate
+    const { fromToken, toToken, amountIn } = currentBestRouteData; // These are the IDs
+    const fromChainID = fromChainSelect.value;
 
     const fromChainConfig = allChainsData.find(c => c.id === fromChainID);
     if (!fromChainConfig) {
         showStatus("Critical Error: Source chain configuration missing.", "error");
         return;
     }
-    // The userAddress for the API is the key name the backend operator will use for this chain.
     const userAddressForApi = fromChainConfig.OperatorKeyName; 
 
     const payload = {
-        fromToken,
-        toToken,
+        fromToken, // ID
+        toToken,   // ID
         amountIn,
         fromChainID,
-        userAddress: userAddressForApi, // This tells backend which key to use for signing on fromChainID
-        // recipientAddress: "" // For MVP, backend can default this to userAddressForApi on target chain
+        userAddress: userAddressForApi,
     };
 
     showStatus("Executing swap...", "loading");
-    const executeSwapButton = document.getElementById('executeSwapButton'); // Get it again, might be re-rendered
+    const executeSwapButton = document.getElementById('executeSwapButton');
     if (executeSwapButton) executeSwapButton.disabled = true;
     checkRouteButton.disabled = true;
 
@@ -288,7 +325,7 @@ async function handleExecuteSwap() {
         const swapResult = JSON.parse(responseText);
 
         if (!response.ok) {
-            throw new Error(swapResult.error || swapResult.message || `Swap Error (${response.status}): ${responseText.substring(0,100)}...`);
+             throw new Error(swapResult.error || swapResult.message || `Swap Error (${response.status}): ${responseText.substring(0,100)}...`);
         }
         
         let resultHTML = `<hr style="margin: 15px 0; border-color: var(--border-color);">
@@ -302,22 +339,32 @@ async function handleExecuteSwap() {
             resultHTML += `<p><strong>DEX Swap Tx Hash:</strong> <span style="word-break:break-all;">${swapResult.swapTxHash}</span></p>`;
         }
         if (swapResult.finalAmountOut && !swapResult.finalAmountOut.toLowerCase().includes("unknown")) {
-            resultHTML += `<p><strong>Est. Final Amount Out:</strong> ${swapResult.finalAmountOut}</p>`;
+            resultHTML += `<p><strong>Actual Final Amount Out:</strong> ${swapResult.finalAmountOut}</p>`;
         }
-        resultsDisplayDiv.innerHTML += resultHTML; // Append swap execution result
-        showStatus(swapResult.message || "Swap submitted!", "success", 7000);
+        // Instead of +=, let's update a specific part of resultsDisplayDiv if it exists, or append carefully
+        const existingContent = resultsDisplayDiv.querySelector('h4')?.parentElement?.innerHTML || "";
+        if (existingContent.includes("Route Details")) {
+            resultsDisplayDiv.innerHTML = existingContent + resultHTML; // Append to route details
+        } else {
+            resultsDisplayDiv.innerHTML = resultHTML; // Overwrite if no route details were there
+        }
+
+        showStatus(swapResult.message || "Swap submitted successfully!", "success", 7000);
 
     } catch (error) {
         console.error("Error executing swap:", error);
         showStatus(`${error.message}`, "error", 10000);
-        if (executeSwapButton) executeSwapButton.disabled = false; // Re-enable on error
     } finally {
-        // checkRouteButton typically should be re-enabled unless a swap is in a state that prevents new routing
-         checkRouteButton.disabled = false;
+        if (executeSwapButton) executeSwapButton.disabled = false;
+        checkRouteButton.disabled = false;
     }
 }
 
-// --- UI Display Functions --- (Mostly same as before, ensure robustness)
+
+// --- UI Display Functions (displayRouteVisualization, createRouteStepHTML, displayRouteResults) ---
+// These need to use the descriptive names from allTokensWithDetails for display purposes,
+// but the underlying logic for API calls must use the token IDs.
+
 function displayRouteVisualization(bestRouteDetail) {
     routeVisualizationDiv.innerHTML = "";
     if (!bestRouteDetail || !bestRouteDetail.steps || bestRouteDetail.steps.length === 0) {
@@ -326,66 +373,74 @@ function displayRouteVisualization(bestRouteDetail) {
     }
 
     let htmlPath = "";
-    let currentChainForLogo = fromChainSelect.value;
-    const initialFromTokenInfo = allTokensWithDetails.find(t => t.id === fromTokenSelect.value);
+    // The fromTokenSelect.value is the actual ID (e.g. ualpha) of the starting token
+    const initialFromTokenDetails = allTokensWithDetails.find(t => t.id === fromTokenSelect.value);
+    // The fromChainSelect.value is the ID of the starting chain (e.g. alphanet-1)
+    let currentChainContextId = fromChainSelect.value; 
 
-    htmlPath += createRouteStepHTML(currentChainForLogo, initialFromTokenInfo, true); // Mark as start
+    htmlPath += createRouteStepHTML(currentChainContextId, initialFromTokenDetails);
 
     bestRouteDetail.steps.forEach((step, index) => {
         const stepLower = step.toLowerCase();
-        let actionLogo = "logos/ibc.svg"; 
-        let nextChainIdForLogo = null;
-        let nextTokenDisplayInfo = null;
+        let actionLogo = "logos/ibc.svg"; // Default
+        let nextChainDisplayId = null;
+        let tokenForNextStepDisplay = null; // This is what the token becomes *after* the step
 
         if (stepLower.includes("ibc transfer")) {
-            const toMatch = step.match(/to ([\w-]+(?:net-1)?)/i);
-            if (toMatch) nextChainIdForLogo = getChainIdByNameOrId(toMatch[1]);
-            // After IBC, the token is conceptually still the one that was sent, just on a new chain
-            nextTokenDisplayInfo = initialFromTokenInfo; 
+            // Step: "IBC Transfer ualpha from AlphaNet to BetaNet (becomes ibc/AlphaOnBeta)"
+            const toChainMatch = step.match(/to ([\w-]+(?:net-1)?)/i); // e.g., "BetaNet" or "betanet-1"
+            const becomesMatch = step.match(/\(becomes (ibc\/[\w\/-]+)\)/i); // e.g., "ibc/AlphaOnBeta"
+            
+            if (toChainMatch) nextChainDisplayId = getChainIdByNameOrId(toChainMatch[1]);
+            if (becomesMatch) {
+                tokenForNextStepDisplay = allTokensWithDetails.find(t => t.id === becomesMatch[1]);
+            } else { // If "becomes" part is missing, assume original token on new chain
+                tokenForNextStepDisplay = initialFromTokenDetails; 
+            }
+            
         } else if (stepLower.includes("swap")) {
-            const onMatch = step.match(/on ([\w-]+(?:net-1)?)/i);
-            if (onMatch) nextChainIdForLogo = getChainIdByNameOrId(onMatch[1]);
-            else nextChainIdForLogo = currentChainForLogo; 
-            // After swap, the token becomes the overall target token
-            nextTokenDisplayInfo = allTokensWithDetails.find(t => t.id === toTokenSelect.value);
+            // Step: "Swap ibc/AlphaOnBeta for ubeta on BetaNet DEX"
+            const onChainMatch = step.match(/on ([\w-]+(?:net-1)?)/i);
+            const forTokenMatch = step.match(/for ([\w\/]+) on/i); // e.g., "ubeta"
+
+            if (onChainMatch) nextChainDisplayId = getChainIdByNameOrId(onChainMatch[1]);
+            else nextChainDisplayId = currentChainContextId; // Swap happens on the current chain
+
+            if (forTokenMatch) {
+                tokenForNextStepDisplay = allTokensWithDetails.find(t => t.id === forTokenMatch[1]);
+            }
+            actionLogo = "logos/swap_action.svg"; // Or reuse ibc.svg
+            if(!document.querySelector(`img[src$="${actionLogo}"]`)) actionLogo = "logos/ibc.svg";
         }
 
-        if (nextChainIdForLogo) {
-            htmlPath += `<img src="${actionLogo}" alt="Route Action" class="ibc-logo route-arrow">`;
-            htmlPath += createRouteStepHTML(nextChainIdForLogo, nextTokenDisplayInfo, index === bestRouteDetail.steps.length -1 && !stepLower.includes("ibc transfer"));
-            currentChainForLogo = nextChainIdForLogo;
+        if (nextChainDisplayId) {
+            htmlPath += `<img src="${actionLogo}" alt="Action" class="ibc-logo route-arrow">`;
+            htmlPath += createRouteStepHTML(nextChainDisplayId, tokenForNextStepDisplay);
+            currentChainContextId = nextChainDisplayId; // Update context for next step
         }
     });
     routeVisualizationDiv.innerHTML = htmlPath || "<p style='color: var(--text-secondary);'>Route details will appear here.</p>";
 }
 
-
 function getChainIdByNameOrId(nameOrId) {
-    const nameOrIdLower = nameOrId.toLowerCase();
+    const nameOrIdLower = nameOrId.toLowerCase().replace("net", "net-1"); // Normalize "AlphaNet" to "alphanet-1"
     const foundChain = allChainsData.find(c => 
-        c.name.toLowerCase() === nameOrIdLower || 
         c.id.toLowerCase() === nameOrIdLower ||
+        c.name.toLowerCase() === nameOrIdLower ||
         c.name.toLowerCase().startsWith(nameOrIdLower.split(' ')[0])
     );
-    return foundChain ? foundChain.id : nameOrId;
+    return foundChain ? foundChain.id : nameOrId; // Fallback
 }
 
-function createRouteStepHTML(chainId, tokenInfoInput, isFinalToken = false) {
-    const chainInfo = allChainsData.find(c => c.id === chainId) || { id: chainId, name: chainId.replace('-1', '').toUpperCase() + "Net" };
+function createRouteStepHTML(chainId, tokenInfo) {
+    const chainInfo = allChainsData.find(c => c.id === chainId) || { id: chainId, name: "Unknown Chain" };
     
-    let tokenInfo = tokenInfoInput;
-    if (!tokenInfo && isFinalToken) { // If it's the final step and no specific tokenInfo, use the overall toToken
-        tokenInfo = allTokensWithDetails.find(t => t.id === toTokenSelect.value);
-    }
-    if (!tokenInfo && chainInfo.nativeToken) { // Fallback to chain's native token
-        tokenInfo = allTokensWithDetails.find(t => t.id === chainInfo.nativeToken);
-    }
-    if (!tokenInfo) { // Absolute fallback
-        tokenInfo = { name: "Token on " + chainInfo.name, logo: `logos/${chainId}.svg` };
-    }
-    
-    const logoSrc = tokenInfo.logo || `logos/${chainId}.svg`;
-    const displayName = tokenInfo.name;
+    // Ensure tokenInfo is an object, provide defaults if not
+    const displayToken = tokenInfo && typeof tokenInfo === 'object' ? tokenInfo : 
+                         { name: (tokenInfo || "Token") , logo: `logos/${(tokenInfo || 'unknown')}.svg` };
+
+    const logoSrc = displayToken.logo || `logos/unknown.svg`;
+    const displayName = displayToken.name;
     
     return `
         <div class="route-step" title="${chainInfo.name} - ${displayName}">
@@ -421,12 +476,9 @@ function displayRouteResults(routeData) {
         ${stepsHtml}
         <button id="executeSwapButton">Execute This Swap</button> 
     `;
-    // Ensure button exists before adding listener
     const swapButton = document.getElementById('executeSwapButton');
     if (swapButton) {
         swapButton.addEventListener('click', handleExecuteSwap);
-    } else {
-        console.error("Could not find executeSwapButton to attach listener.");
     }
 }
 
@@ -445,7 +497,6 @@ function showStatus(message, type = "info", duration = 0) {
     }
 }
 
-// Fallback for broken image links
 document.addEventListener('error', function (event) {
     if (event.target.tagName.toLowerCase() === 'img' && event.target.classList.contains('logo')) {
         event.target.src = 'logos/unknown.svg';
