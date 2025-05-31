@@ -6,7 +6,7 @@ import (
 	"log"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	wasmtypes "cosmos_defi_aggregator/types"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/ignite/cli/v29/ignite/pkg/cosmosclient"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
