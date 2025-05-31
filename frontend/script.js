@@ -1,66 +1,133 @@
-const API_BASE_URL = "http://localhost:8080/api/v1"; // Your backend URL
+const API_BASE_URL = "http://localhost:8080/api/v1";
 
-// Mock data for initial population and testing without backend
-const mockChains = [
-    { id: "alphanet-1", name: "AlphaNet (Local)", nativeToken: "ualpha", supportedTokens: ["ualpha", "tokenb", "tokenc"], feeDenom: "ualpha" },
-    { id: "betanet-1", name: "BetaNet (Local)", nativeToken: "ubeta", supportedTokens: ["ubeta", "tokena", "tokenc"], feeDenom: "ubeta" },
-    { id: "gammanet-1", name: "GammaNet (Local)", nativeToken: "ugamma", supportedTokens: ["ugamma", "tokena", "tokenb"], feeDenom: "ugamma" },
-];
-
-const mockTokens = [ // All unique tokens
-    { id: "ualpha", name: "ALPHA", logo: "logos/ualpha.svg", chainId: "alphanet-1" },
-    { id: "ubeta", name: "BETA", logo: "logos/ubeta.svg", chainId: "betanet-1" },
-    { id: "ugamma", name: "GAMMA", logo: "logos/ugamma.svg", chainId: "gammanet-1" },
-    { id: "tokena", name: "Token A (IBC'd ALPHA)", logo: "logos/ualpha.svg" }, // Conceptual IBC token
-    { id: "tokenb", name: "Token B (IBC'd BETA)", logo: "logos/ubeta.svg" },   // Conceptual IBC token
-    { id: "tokenc", name: "Token C (IBC'd GAMMA)", logo: "logos/ugamma.svg" }, // Conceptual IBC token
-];
-
-// Global state (minimal)
-let currentBestRoute = null;
+// Global state
 let allChainsData = [];
-let allTokensData = [];
-
+let allTokensWithDetails = [];
+let currentBestRouteData = null;
 
 // DOM Elements
 const fromChainSelect = document.getElementById('fromChain');
 const fromTokenSelect = document.getElementById('fromToken');
 const toTokenSelect = document.getElementById('toToken');
 const amountInInput = document.getElementById('amountIn');
-const checkRateButton = document.getElementById('checkRateButton');
+const checkRouteButton = document.getElementById('checkRouteButton');
 const routeVisualizationDiv = document.getElementById('route-visualization');
 const resultsDisplayDiv = document.getElementById('results-display');
 const statusMessageDiv = document.getElementById('status-message');
 
-// --- Initialization ---
-document.addEventListener('DOMContentLoaded', async () => {
-    showStatus("Loading chain and token data...", "loading");
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+async function initializeApp() {
+    showStatus("Initializing: Loading chain and token data...", "loading");
+    checkRouteButton.disabled = true; // Disable until loaded
     try {
-        // Replace with actual API calls when backend is ready
-        // const chainsResponse = await fetch(`${API_BASE_URL}/chains`);
-        // allChainsData = await chainsResponse.json();
-        // const tokensResponse = await fetch(`${API_BASE_URL}/tokens`); // Assuming this gives all unique tokens with names/logos
-        // allTokensData = (await tokensResponse.json()).supportedTokens.map(t => ({id: t, name: t.toUpperCase()})); // Adapt based on actual API
-
-        allChainsData = mockChains; // Using mock for now
-        allTokensData = mockTokens; // Using mock for now
-
+        const chainsResponse = await fetch(`${API_BASE_URL}/chains`);
+        if (!chainsResponse.ok) throw new Error(`Failed to fetch chains: ${chainsResponse.statusText}`);
+        allChainsData = await chainsResponse.json();
+        if (!Array.isArray(allChainsData) || allChainsData.length === 0) {
+            throw new Error("No chains data received or data is invalid.");
+        }
         populateChainSelect(fromChainSelect, allChainsData);
-        updateFromTokenOptions(); // Initial population based on first chain
-        populateToTokenOptions(allTokensData); // Populate with all conceptual tokens
+
+        const tokensResponse = await fetch(`${API_BASE_URL}/tokens`);
+        if (!tokensResponse.ok) throw new Error(`Failed to fetch tokens: ${tokensResponse.statusText}`);
+        const tokenListPayload = await tokensResponse.json();
+        if (!tokenListPayload || !Array.isArray(tokenListPayload.supportedTokens)) {
+            throw new Error("Tokens data format from API is incorrect.");
+        }
+        allTokensWithDetails = deriveTokenDetails(tokenListPayload.supportedTokens, allChainsData);
+
+        // Set default for "From Chain" and trigger dependent dropdown updates
+        if (allChainsData.length > 0) {
+            fromChainSelect.value = allChainsData[0].id; // Default to first chain
+        }
+        await updateFromTokenOptions(); // Ensure this completes and sets a default fromToken
+        await populateToTokenOptions();   // Ensure this completes and sets a default toToken
+
+        // Set a default amount for easier testing
+        amountInInput.value = "1000000"; // Default amount, e.g., 1 native token unit
+
+        fromChainSelect.addEventListener('change', async () => {
+            await updateFromTokenOptions();
+            // No need to explicitly call populateToTokenOptions here, updateFromTokenOptions does it
+        });
+        fromTokenSelect.addEventListener('change', populateToTokenOptions); // Re-filter 'To Token'
+        checkRouteButton.addEventListener('click', handleCheckBestRoute);
         
-        fromChainSelect.addEventListener('change', updateFromTokenOptions);
-        checkRateButton.addEventListener('click', handleCheckRate);
         showStatus("Ready to find routes!", "success", 2000);
+        checkRouteButton.disabled = false; // Enable after successful load
 
     } catch (error) {
         console.error("Initialization Error:", error);
-        showStatus("Error loading initial data: " + error.message, "error");
+        showStatus(`Initialization Error: ${error.message}. Ensure backend is running and APIs are correct.`, "error");
+        // Keep button disabled if init fails
     }
-});
+}
+
+function deriveTokenDetails(tokenIds, chains) {
+    const detailedTokens = [];
+    const seenIds = new Set();
+
+    if (!Array.isArray(tokenIds)) {
+        console.error("deriveTokenDetails: tokenIds is not an array", tokenIds);
+        return detailedTokens;
+    }
+
+    tokenIds.forEach(id => {
+        if (seenIds.has(id) || typeof id !== 'string') return;
+
+        let name = id.toUpperCase().replace(/^U/, '');
+        let logo = `logos/${id.split('/')[0]}.svg`;
+        let originChainId = null;
+
+        const nativeChain = chains.find(c => c.nativeToken === id);
+        if (nativeChain) {
+            name = `${name} (${nativeChain.name.split(' ')[0]})`;
+            originChainId = nativeChain.id;
+            logo = `logos/${id}.svg`;
+        } else if (id.startsWith("ibc/")) {
+            const conceptualName = id.split('/')[1] || "UnknownIBC"; // e.g. BetaOnAlpha
+            let baseName = conceptualName;
+            if (conceptualName.includes("On")) {
+                baseName = conceptualName.substring(0, conceptualName.indexOf("On")); // e.g. Beta
+            }
+            name = `${baseName.toUpperCase()} (IBC)`;
+            const potentialNativeDenom = `u${baseName.toLowerCase()}`;
+            if (chains.find(c => c.nativeToken === potentialNativeDenom)) {
+                logo = `logos/${potentialNativeDenom}.svg`;
+            } else {
+                logo = "logos/ibc.svg";
+            }
+        } else {
+             // Handle conceptual tokens like "tokena"
+            const firstChar = id.charAt(0); // "t" from "tokena"
+            const baseTokenLetter = id.substring(5); // "a" from "tokena"
+            const potentialNativeToken = `u${baseTokenLetter}lpha`; // Assuming 'a' -> alpha, 'b' -> beta etc.
+
+            if (firstChar === 't' && baseTokenLetter.length === 1) {
+                let nativeMatch = null;
+                if (baseTokenLetter === 'a') nativeMatch = chains.find(c => c.nativeToken === 'ualpha');
+                else if (baseTokenLetter === 'b') nativeMatch = chains.find(c => c.nativeToken === 'ubeta');
+                else if (baseTokenLetter === 'c') nativeMatch = chains.find(c => c.nativeToken === 'ugamma');
+
+                if (nativeMatch) {
+                    name = `${nativeMatch.nativeToken.replace(/^u/,'').toUpperCase()} (Conceptual)`;
+                    logo = `logos/${nativeMatch.nativeToken}.svg`;
+                }
+            }
+        }
+        detailedTokens.push({ id, name, logo, originChainId });
+        seenIds.add(id);
+    });
+    return detailedTokens;
+}
 
 function populateChainSelect(selectElement, chains) {
-    selectElement.innerHTML = ""; // Clear existing
+    selectElement.innerHTML = '<option value="">-- Select From Chain --</option>';
+    if (!Array.isArray(chains) || chains.length === 0) {
+        selectElement.innerHTML = '<option value="">No chains available</option>';
+        return;
+    }
     chains.forEach(chain => {
         const option = document.createElement('option');
         option.value = chain.id;
@@ -69,305 +136,319 @@ function populateChainSelect(selectElement, chains) {
     });
 }
 
-function updateFromTokenOptions() {
+async function updateFromTokenOptions() { // Make async if fetching involved, though not here
     const selectedChainId = fromChainSelect.value;
-    const selectedChain = allChainsData.find(c => c.id === selectedChainId);
+    fromTokenSelect.innerHTML = '<option value="">-- Select From Token --</option>';
     
-    fromTokenSelect.innerHTML = ""; // Clear existing
-    if (selectedChain) {
-        // For MVP, assume supportedTokens in chain config are the actual denoms to use for that chain's DEX
+    if (!selectedChainId) {
+        await populateToTokenOptions();
+        return;
+    }
+
+    const selectedChain = allChainsData.find(c => c.id === selectedChainId);
+    if (selectedChain && Array.isArray(selectedChain.supportedTokens)) {
         selectedChain.supportedTokens.forEach(tokenId => {
-            const tokenInfo = allTokensData.find(t => t.id === tokenId) || { id: tokenId, name: tokenId.toUpperCase().replace('U', '') };
+            const tokenInfo = allTokensWithDetails.find(t => t.id === tokenId) || 
+                              { id: tokenId, name: tokenId.toUpperCase().replace(/^U/, ''), logo: `logos/${tokenId}.svg` };
             const option = document.createElement('option');
             option.value = tokenInfo.id;
             option.textContent = tokenInfo.name;
             fromTokenSelect.appendChild(option);
         });
     }
-    // Also update "To Token" options to exclude the currently selected "From Token"
-    populateToTokenOptions(allTokensData);
+    
+    if (fromTokenSelect.options.length > 1) {
+        fromTokenSelect.selectedIndex = 1; // Default to the first actual token
+    } else if (fromTokenSelect.options.length === 1 && selectedChain && selectedChain.nativeToken) {
+        // If supportedTokens was empty but chain has a native token, add it as a fallback
+        const nativeTokenInfo = allTokensWithDetails.find(t => t.id === selectedChain.nativeToken) ||
+                                { id: selectedChain.nativeToken, name: selectedChain.nativeToken.toUpperCase().replace(/^U/, ''), logo: `logos/${selectedChain.nativeToken}.svg`};
+        const option = document.createElement('option');
+        option.value = nativeTokenInfo.id;
+        option.textContent = nativeTokenInfo.name;
+        fromTokenSelect.appendChild(option);
+        fromTokenSelect.selectedIndex = 1;
+    }
+    await populateToTokenOptions(); // Refresh "To Token" options
 }
 
-function populateToTokenOptions(tokens) {
-    const currentFromToken = fromTokenSelect.value;
-    toTokenSelect.innerHTML = ""; // Clear existing
-    tokens.forEach(token => {
-        if (token.id !== currentFromToken) { // Don't allow swapping to the same token
+async function populateToTokenOptions() { // Make async if fetching involved
+    const currentFromTokenId = fromTokenSelect.value;
+    toTokenSelect.innerHTML = '<option value="">-- Select To Token --</option>';
+
+    allTokensWithDetails.forEach(token => {
+        if (token.id !== currentFromTokenId) {
             const option = document.createElement('option');
             option.value = token.id;
             option.textContent = token.name;
             toTokenSelect.appendChild(option);
         }
     });
+    if (toTokenSelect.options.length > 1) {
+        // Try to select a different token than fromToken, if possible
+        if (currentFromTokenId === toTokenSelect.options[1].value && toTokenSelect.options.length > 2) {
+            toTokenSelect.selectedIndex = 2;
+        } else {
+            toTokenSelect.selectedIndex = 1;
+        }
+    }
 }
 
 
-// --- Event Handlers & API Calls ---
-async function handleCheckRate() {
+async function handleCheckBestRoute() {
     const fromChainID = fromChainSelect.value;
     const fromToken = fromTokenSelect.value;
     const toToken = toTokenSelect.value;
     const amountIn = amountInInput.value;
 
-    if (!fromChainID || !fromToken || !toToken || !amountIn || parseFloat(amountIn) <= 0) {
-        showStatus("Please fill in all fields with valid values.", "error");
+    if (!fromChainID) { showStatus("Please select a 'From Chain'.", "error", 4000); return; }
+    if (!fromToken) { showStatus("Please select a 'From Token'.", "error", 4000); return; }
+    if (!toToken) { showStatus("Please select a 'To Token'.", "error", 4000); return; }
+    if (!amountIn || parseFloat(amountIn) <= 0) {
+        showStatus("Please enter a valid 'Amount' (must be > 0).", "error", 4000);
         return;
     }
 
-    showStatus("Checking best rate & route...", "loading");
+    showStatus("Finding best route...", "loading");
     resultsDisplayDiv.innerHTML = "";
     routeVisualizationDiv.innerHTML = "";
-    checkRateButton.disabled = true;
+    checkRouteButton.disabled = true;
+    currentBestRouteData = null;
 
     try {
-        // MOCK API CALL FOR NOW - Replace with actual fetch to your backend
-        // const response = await fetch(`${API_BASE_URL}/best-route?fromToken=${fromToken}&toToken=${toToken}&amountIn=${amountIn}&fromChainID=${fromChainID}`);
-        // if (!response.ok) {
-        //     const errorData = await response.json();
-        //     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        // }
-        // currentBestRoute = await response.json();
+        const queryParams = new URLSearchParams({ fromToken, toToken, amountIn, fromChainID });
+        const response = await fetch(`${API_BASE_URL}/best-route?${queryParams.toString()}`);
         
-        // --- Using Mock Route Data ---
-        currentBestRoute = generateMockRoute(fromChainID, fromToken, toToken, amountIn);
-        if (!currentBestRoute || !currentBestRoute.bestRoute) {
-             throw new Error("No route found for this pair (mock data).");
+        const responseText = await response.text();
+        if (!response.ok) {
+            let errorMsg = `Route Error (${response.status}): ${response.statusText}`;
+            try {
+                const errorData = JSON.parse(responseText);
+                errorMsg = errorData.error || errorData.message || errorMsg;
+            } catch (e) { /* responseText might not be JSON */ errorMsg = `${errorMsg} - Response: ${responseText.substring(0,100)}...` }
+            throw new Error(errorMsg);
         }
-        // --- End Mock Route Data ---
+        currentBestRouteData = JSON.parse(responseText);
 
+        if (!currentBestRouteData || !currentBestRouteData.bestRoute || !currentBestRouteData.bestRoute.steps || currentBestRouteData.bestRoute.steps.length === 0) {
+            throw new Error("No viable route found. Try different tokens or increase amount.");
+        }
 
-        displayRouteVisualization(currentBestRoute.bestRoute);
-        displayRouteResults(currentBestRoute);
-        showStatus("Best route found!", "success", 2000);
+        displayRouteVisualization(currentBestRouteData.bestRoute);
+        displayRouteResults(currentBestRouteData); // This adds the "Execute Swap" button
+        showStatus("Best route found!", "success", 3000);
 
     } catch (error) {
         console.error("Error fetching best route:", error);
-        showStatus("Error: " + error.message, "error");
-        currentBestRoute = null;
+        showStatus(`${error.message}`, "error", 7000);
     } finally {
-        checkRateButton.disabled = false;
+        checkRouteButton.disabled = false;
     }
 }
 
-function generateMockRoute(fromChainID, fromTokenID, toTokenID, amountIn) {
-    // This function generates plausible mock routes for demonstration
-    const fromChain = allChainsData.find(c => c.id === fromChainID);
-    const toTokenInfo = allTokensData.find(t => t.id === toTokenID);
-
-    if (!fromChain || !toTokenInfo) return null;
-
-    let bestRouteDetail;
-    const fromTokenInfo = allTokensData.find(t => t.id === fromTokenID);
-
-    // Scenario 1: Direct swap on source chain (if ToToken is conceptually on FromChain)
-    if (fromChain.supportedTokens.includes(toTokenID)) {
-        bestRouteDetail = {
-            chainIDSwappingOn: fromChain.id,
-            rate: (Math.random() * 0.2 + 0.9).toFixed(4), // Random rate around 0.9-1.1
-            amountOut: (parseFloat(amountIn) * (Math.random() * 0.2 + 0.9)).toFixed(0),
-            steps: [`Swap ${fromTokenInfo.name} for ${toTokenInfo.name} on ${fromChain.name} DEX`],
-            needsIBC: false,
-        };
-    } else { // Scenario 2: IBC transfer needed
-        // Find an intermediate chain that supports both (or the target token natively)
-        const intermediateChain = allChainsData.find(c => c.id !== fromChainID && c.supportedTokens.includes(toTokenID)) || 
-                                  allChainsData.find(c => c.id !== fromChainID && c.nativeToken === toTokenID) || // Target chain for native
-                                  allChainsData.find(c => c.id !== fromChainID); // Fallback to any other chain
-
-        if (!intermediateChain) return null; // Should not happen with 3 chains
-
-        bestRouteDetail = {
-            chainIDSwappingOn: intermediateChain.id,
-            rate: (Math.random() * 0.3 + 0.85).toFixed(4), // Slightly worse rate due to IBC conceptually
-            amountOut: (parseFloat(amountIn) * (Math.random() * 0.3 + 0.85) * 0.98).toFixed(0), // *0.98 for "IBC fee"
-            steps: [
-                `IBC Transfer ${fromTokenInfo.name} from ${fromChain.name} to ${intermediateChain.name}`,
-                `Swap ${fromTokenInfo.name} (as IBC'd) for ${toTokenInfo.name} on ${intermediateChain.name} DEX`
-            ],
-            needsIBC: true,
-        };
-         // If intermediate is not the final token's native chain, add another IBC step (conceptual)
-        if (intermediateChain.nativeToken !== toTokenInfo.id && toTokenInfo.chainId && intermediateChain.id !== toTokenInfo.chainId) {
-            const finalChain = allChainsData.find(c => c.id === toTokenInfo.chainId) || intermediateChain; // target chain for the toToken
-             bestRouteDetail.steps = [
-                `IBC Transfer ${fromTokenInfo.name} from ${fromChain.name} to ${intermediateChain.name}`,
-                `Swap ${fromTokenInfo.name} (as IBC'd) for ${toTokenInfo.name} (conceptual) on ${intermediateChain.name} DEX`,
-                `IBC Transfer ${toTokenInfo.name} from ${intermediateChain.name} to ${finalChain.name}`
-            ];
-            bestRouteDetail.chainIDSwappingOn = finalChain.id; // Final swap happens on final chain
-        }
-
-    }
-    
-    return {
-        fromToken: fromTokenID,
-        toToken: toTokenID,
-        amountIn: amountIn,
-        bestRoute: bestRouteDetail,
-        otherRoutes: [] // Mock: not generating other routes for simplicity
-    };
-}
-
-
-function displayRouteVisualization(bestRouteDetail) {
-    routeVisualizationDiv.innerHTML = ""; // Clear previous
-    if (!bestRouteDetail || !bestRouteDetail.steps || bestRouteDetail.steps.length === 0) {
-        routeVisualizationDiv.innerHTML = "<p>No route steps to display.</p>";
+async function handleExecuteSwap() {
+    if (!currentBestRouteData || !currentBestRouteData.bestRoute) {
+        showStatus("No route selected to execute. Please find a route first.", "error", 4000);
         return;
     }
 
-    // Logic to parse steps and determine chain sequence for visualization
-    // This is a simplified parser for the mock step descriptions.
-    // A robust solution would get structured chain path data from the backend.
-    const chainSequence = new Set();
-    let lastChain = fromChainSelect.value; // Start with the source chain of the query
-    chainSequence.add(lastChain);
+    const { fromToken, toToken, amountIn } = currentBestRouteData;
+    const fromChainID = fromChainSelect.value; // This is where the tokens originate
 
-    bestRouteDetail.steps.forEach(step => {
-        const ibcMatch = step.match(/IBC Transfer.*?from (.*?) to (.*?)$/i);
-        const swapMatch = step.match(/Swap.*?on (.*?) DEX/i);
-        if (ibcMatch) {
-            // chainSequence.add(ibcMatch[1].replace('Net','net-1')); // Extract chain name, map to ID
-            chainSequence.add(getChainIdFromName(ibcMatch[2])); // Add destination chain
-            lastChain = getChainIdFromName(ibcMatch[2]);
-        } else if (swapMatch) {
-            // chainSequence.add(swapMatch[1].replace('Net','net-1'));
-            chainSequence.add(getChainIdFromName(swapMatch[1]));
-            lastChain = getChainIdFromName(swapMatch[1]);
-        }
-    });
-     // Ensure the final swapping chain is included if not caught by parsing steps
-    if (bestRouteDetail.chainIDSwappingOn && !Array.from(chainSequence).includes(bestRouteDetail.chainIDSwappingOn)) {
-        // Attempt to insert it logically or just append
-        if (lastChain !== bestRouteDetail.chainIDSwappingOn) { // Avoid duplicate if lastChain is already the swapping chain
-            chainSequence.add(bestRouteDetail.chainIDSwappingOn);
-        }
+    const fromChainConfig = allChainsData.find(c => c.id === fromChainID);
+    if (!fromChainConfig) {
+        showStatus("Critical Error: Source chain configuration missing.", "error");
+        return;
     }
+    // The userAddress for the API is the key name the backend operator will use for this chain.
+    const userAddressForApi = fromChainConfig.OperatorKeyName; 
 
+    const payload = {
+        fromToken,
+        toToken,
+        amountIn,
+        fromChainID,
+        userAddress: userAddressForApi, // This tells backend which key to use for signing on fromChainID
+        // recipientAddress: "" // For MVP, backend can default this to userAddressForApi on target chain
+    };
 
-    const uniqueChainPath = Array.from(chainSequence);
+    showStatus("Executing swap...", "loading");
+    const executeSwapButton = document.getElementById('executeSwapButton'); // Get it again, might be re-rendered
+    if (executeSwapButton) executeSwapButton.disabled = true;
+    checkRouteButton.disabled = true;
 
-    let html = "";
-    uniqueChainPath.forEach((chainId, index) => {
-        const chainInfo = allChainsData.find(c => c.id === chainId) || { id: chainId, name: chainId };
-        const tokenInfo = allTokensData.find(t => t.id === (index === 0 ? fromTokenSelect.value : (index === uniqueChainPath.length - 1 ? toTokenSelect.value : 'transfer'))); // Conceptual token for step
-        const logoSrc = tokenInfo && tokenInfo.logo ? tokenInfo.logo : `logos/${chainId}.svg`; // Fallback to chain logo
+    try {
+        const response = await fetch(`${API_BASE_URL}/swap`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-        html += `
-            <div class="route-step">
-                <img src="${logoSrc}" alt="${chainInfo.name} logo" class="logo">
-                <span class="chain-name">${chainInfo.name}</span>
-            </div>
-        `;
-        if (index < uniqueChainPath.length - 1) {
-            html += `<img src="logos/ibc.svg" alt="IBC Transfer" class="ibc-logo route-arrow">`;
+        const responseText = await response.text();
+        const swapResult = JSON.parse(responseText);
+
+        if (!response.ok) {
+            throw new Error(swapResult.error || swapResult.message || `Swap Error (${response.status}): ${responseText.substring(0,100)}...`);
         }
-    });
-    routeVisualizationDiv.innerHTML = html || "<p>Route will appear here.</p>";
+        
+        let resultHTML = `<hr style="margin: 15px 0; border-color: var(--border-color);">
+                          <h4>Swap Request Submitted:</h4>
+                          <p><strong>Status:</strong> ${swapResult.status || 'N/A'}</p>
+                          <p><strong>Message:</strong> ${swapResult.message || 'Processing...'}</p>`;
+        if (swapResult.ibcTxHash) {
+            resultHTML += `<p><strong>IBC Tx Hash:</strong> <span style="word-break:break-all;">${swapResult.ibcTxHash}</span></p>`;
+        }
+        if (swapResult.swapTxHash) {
+            resultHTML += `<p><strong>DEX Swap Tx Hash:</strong> <span style="word-break:break-all;">${swapResult.swapTxHash}</span></p>`;
+        }
+        if (swapResult.finalAmountOut && !swapResult.finalAmountOut.toLowerCase().includes("unknown")) {
+            resultHTML += `<p><strong>Est. Final Amount Out:</strong> ${swapResult.finalAmountOut}</p>`;
+        }
+        resultsDisplayDiv.innerHTML += resultHTML; // Append swap execution result
+        showStatus(swapResult.message || "Swap submitted!", "success", 7000);
+
+    } catch (error) {
+        console.error("Error executing swap:", error);
+        showStatus(`${error.message}`, "error", 10000);
+        if (executeSwapButton) executeSwapButton.disabled = false; // Re-enable on error
+    } finally {
+        // checkRouteButton typically should be re-enabled unless a swap is in a state that prevents new routing
+         checkRouteButton.disabled = false;
+    }
 }
 
-// Helper to map chain name from steps to chain ID (simplified)
-function getChainIdFromName(chainName) {
-    const foundChain = allChainsData.find(c => c.name.toLowerCase().startsWith(chainName.toLowerCase().split(' ')[0]));
-    return foundChain ? foundChain.id : chainName.toLowerCase().replace('net', 'net-1'); // Fallback guess
+// --- UI Display Functions --- (Mostly same as before, ensure robustness)
+function displayRouteVisualization(bestRouteDetail) {
+    routeVisualizationDiv.innerHTML = "";
+    if (!bestRouteDetail || !bestRouteDetail.steps || bestRouteDetail.steps.length === 0) {
+        routeVisualizationDiv.innerHTML = "<p style='color: var(--text-secondary);'>Route details will appear here.</p>";
+        return;
+    }
+
+    let htmlPath = "";
+    let currentChainForLogo = fromChainSelect.value;
+    const initialFromTokenInfo = allTokensWithDetails.find(t => t.id === fromTokenSelect.value);
+
+    htmlPath += createRouteStepHTML(currentChainForLogo, initialFromTokenInfo, true); // Mark as start
+
+    bestRouteDetail.steps.forEach((step, index) => {
+        const stepLower = step.toLowerCase();
+        let actionLogo = "logos/ibc.svg"; 
+        let nextChainIdForLogo = null;
+        let nextTokenDisplayInfo = null;
+
+        if (stepLower.includes("ibc transfer")) {
+            const toMatch = step.match(/to ([\w-]+(?:net-1)?)/i);
+            if (toMatch) nextChainIdForLogo = getChainIdByNameOrId(toMatch[1]);
+            // After IBC, the token is conceptually still the one that was sent, just on a new chain
+            nextTokenDisplayInfo = initialFromTokenInfo; 
+        } else if (stepLower.includes("swap")) {
+            const onMatch = step.match(/on ([\w-]+(?:net-1)?)/i);
+            if (onMatch) nextChainIdForLogo = getChainIdByNameOrId(onMatch[1]);
+            else nextChainIdForLogo = currentChainForLogo; 
+            // After swap, the token becomes the overall target token
+            nextTokenDisplayInfo = allTokensWithDetails.find(t => t.id === toTokenSelect.value);
+        }
+
+        if (nextChainIdForLogo) {
+            htmlPath += `<img src="${actionLogo}" alt="Route Action" class="ibc-logo route-arrow">`;
+            htmlPath += createRouteStepHTML(nextChainIdForLogo, nextTokenDisplayInfo, index === bestRouteDetail.steps.length -1 && !stepLower.includes("ibc transfer"));
+            currentChainForLogo = nextChainIdForLogo;
+        }
+    });
+    routeVisualizationDiv.innerHTML = htmlPath || "<p style='color: var(--text-secondary);'>Route details will appear here.</p>";
+}
+
+
+function getChainIdByNameOrId(nameOrId) {
+    const nameOrIdLower = nameOrId.toLowerCase();
+    const foundChain = allChainsData.find(c => 
+        c.name.toLowerCase() === nameOrIdLower || 
+        c.id.toLowerCase() === nameOrIdLower ||
+        c.name.toLowerCase().startsWith(nameOrIdLower.split(' ')[0])
+    );
+    return foundChain ? foundChain.id : nameOrId;
+}
+
+function createRouteStepHTML(chainId, tokenInfoInput, isFinalToken = false) {
+    const chainInfo = allChainsData.find(c => c.id === chainId) || { id: chainId, name: chainId.replace('-1', '').toUpperCase() + "Net" };
+    
+    let tokenInfo = tokenInfoInput;
+    if (!tokenInfo && isFinalToken) { // If it's the final step and no specific tokenInfo, use the overall toToken
+        tokenInfo = allTokensWithDetails.find(t => t.id === toTokenSelect.value);
+    }
+    if (!tokenInfo && chainInfo.nativeToken) { // Fallback to chain's native token
+        tokenInfo = allTokensWithDetails.find(t => t.id === chainInfo.nativeToken);
+    }
+    if (!tokenInfo) { // Absolute fallback
+        tokenInfo = { name: "Token on " + chainInfo.name, logo: `logos/${chainId}.svg` };
+    }
+    
+    const logoSrc = tokenInfo.logo || `logos/${chainId}.svg`;
+    const displayName = tokenInfo.name;
+    
+    return `
+        <div class="route-step" title="${chainInfo.name} - ${displayName}">
+            <img src="${logoSrc}" alt="${displayName} logo" class="logo" onerror="this.src='logos/unknown.svg'; this.alt='Unknown Token';">
+            <span class="chain-name">${displayName}</span>
+        </div>
+    `;
 }
 
 
 function displayRouteResults(routeData) {
-    if (!routeData || !routeData.bestRoute) {
-        resultsDisplayDiv.innerHTML = "<p>Could not retrieve route details.</p>";
+    const { bestRoute, fromToken, toToken } = routeData;
+    if (!bestRoute) {
+        resultsDisplayDiv.innerHTML = "<p>No valid route details to display.</p>";
         return;
     }
-    const { bestRoute } = routeData;
-    let stepsHtml = "<ul>";
+
+    let stepsHtml = "<ul style='list-style-type: decimal; padding-left: 20px;'>";
     bestRoute.steps.forEach(step => stepsHtml += `<li>${step}</li>`);
     stepsHtml += "</ul>";
 
+    const fromTokenDetails = allTokensWithDetails.find(t => t.id === fromToken) || { name: fromToken, id: fromToken };
+    const toTokenDetails = allTokensWithDetails.find(t => t.id === toToken) || { name: toToken, id: toToken };
+    const swappingChainDetails = allChainsData.find(c => c.id === bestRoute.chainIDSwappingOn) || { name: bestRoute.chainIDSwappingOn };
+
     resultsDisplayDiv.innerHTML = `
-        <h4>Best Route Details:</h4>
-        <p><strong>Swapping On:</strong> ${allChainsData.find(c => c.id === bestRoute.chainIDSwappingOn)?.name || bestRoute.chainIDSwappingOn}</p>
-        <p><strong>Rate:</strong> 1 ${allTokensData.find(t=>t.id === routeData.fromToken)?.name || routeData.fromToken} ≈ ${bestRoute.rate} ${allTokensData.find(t=>t.id === routeData.toToken)?.name || routeData.toToken}</p>
-        <p><strong>Estimated Output:</strong> ${bestRoute.amountOut} ${allTokensData.find(t=>t.id === routeData.toToken)?.name || routeData.toToken}</p>
-        <p><strong>Needs IBC Transfer:</strong> ${bestRoute.needsIBC ? 'Yes' : 'No'}</p>
+        <h4>Route Details:</h4>
+        <p><strong>Swap On:</strong> ${swappingChainDetails.name}</p>
+        <p><strong>Rate:</strong> 1 ${fromTokenDetails.name} ≈ <strong>${bestRoute.rate}</strong> ${toTokenDetails.name}</p>
+        <p><strong>Est. Output:</strong> <strong>${bestRoute.amountOut}</strong> ${toTokenDetails.name}</p>
+        <p><strong>Requires IBC:</strong> ${bestRoute.needsIBC ? 'Yes' : 'No'}</p>
         <p><strong>Steps:</strong></p>
         ${stepsHtml}
-        <button id="executeSwapButton">Execute Swap</button>
+        <button id="executeSwapButton">Execute This Swap</button> 
     `;
-
-    document.getElementById('executeSwapButton').addEventListener('click', handleExecuteSwap);
-}
-
-async function handleExecuteSwap() {
-    if (!currentBestRoute) {
-        showStatus("No route selected to execute.", "error");
-        return;
-    }
-
-    showStatus("Submitting swap transaction...", "loading");
-    document.getElementById('executeSwapButton').disabled = true;
-
-    const payload = {
-        fromToken: currentBestRoute.fromToken,
-        toToken: currentBestRoute.toToken,
-        amountIn: currentBestRoute.amountIn,
-        fromChainID: fromChainSelect.value, // The original source chain
-        userAddress: "wasm1dummyUserAddressBackendOp" // MVP: Hardcode your backend operator's address for the source chain
-        // recipientAddress: "wasm1..." // Optional: if different from userAddress on final chain
-    };
-
-    try {
-        // MOCK API CALL FOR NOW - Replace with actual fetch
-        // const response = await fetch(`${API_BASE_URL}/swap`, {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     body: JSON.stringify(payload)
-        // });
-        // if (!response.ok) {
-        //     const errorData = await response.json();
-        //     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        // }
-        // const swapResult = await response.json();
-
-        // --- Using Mock Swap Result ---
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
-        const swapResult = {
-            status: "completed_mock",
-            message: "Swap submitted successfully (Mocked).",
-            ibcTxHash: currentBestRoute.bestRoute.needsIBC ? "mockIbcTxHash" + Date.now() : "",
-            swapTxHash: "mockSwapTxHash" + Date.now(),
-            finalAmountOut: currentBestRoute.bestRoute.amountOut
-        };
-        // --- End Mock Swap Result ---
-
-        resultsDisplayDiv.innerHTML += `
-            <h4>Swap Result:</h4>
-            <p><strong>Status:</strong> ${swapResult.status}</p>
-            <p><strong>Message:</strong> ${swapResult.message}</p>
-            ${swapResult.ibcTxHash ? `<p><strong>IBC Tx Hash:</strong> ${swapResult.ibcTxHash}</p>` : ''}
-            <p><strong>DEX Swap Tx Hash:</strong> ${swapResult.swapTxHash}</p>
-            <p><strong>Final Amount Out (est.):</strong> ${swapResult.finalAmountOut || 'N/A'}</p>
-        `;
-        showStatus("Swap processed (mocked)!", "success", 3000);
-
-    } catch (error) {
-        console.error("Error executing swap:", error);
-        showStatus("Swap Error: " + error.message, "error");
-    } finally {
-        // Re-enable button or reset state if needed, but for MVP, one-shot is fine.
+    // Ensure button exists before adding listener
+    const swapButton = document.getElementById('executeSwapButton');
+    if (swapButton) {
+        swapButton.addEventListener('click', handleExecuteSwap);
+    } else {
+        console.error("Could not find executeSwapButton to attach listener.");
     }
 }
-
 
 function showStatus(message, type = "info", duration = 0) {
     statusMessageDiv.textContent = message;
-    statusMessageDiv.className = 'status-message ' + type; // e.g., 'status-message loading'
+    statusMessageDiv.className = 'status-message ' + type;
     statusMessageDiv.style.display = 'block';
 
+    if (statusMessageDiv.timeoutId) clearTimeout(statusMessageDiv.timeoutId);
+
     if (duration > 0) {
-        setTimeout(() => {
+        statusMessageDiv.timeoutId = setTimeout(() => {
             statusMessageDiv.style.display = 'none';
             statusMessageDiv.className = 'status-message';
         }, duration);
     }
 }
 
+// Fallback for broken image links
+document.addEventListener('error', function (event) {
+    if (event.target.tagName.toLowerCase() === 'img' && event.target.classList.contains('logo')) {
+        event.target.src = 'logos/unknown.svg';
+        event.target.alt = 'Unknown Token/Chain';
+    }
+}, true);

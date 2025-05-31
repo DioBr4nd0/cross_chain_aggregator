@@ -50,23 +50,57 @@ func GetRatesHandler(c *gin.Context) {
 }
 
 func FindBestRouteHandler(c *gin.Context) {
-	var req models.BestRouteRequest
-	// For GET requests, bind query parameters
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameters: " + err.Error()})
+	// Manually retrieve and validate query parameters
+	fromToken := c.Query("fromToken")
+	toToken := c.Query("toToken")
+	amountInStr := c.Query("amountIn")
+	fromChainID := c.Query("fromChainID")
+
+	// Basic validation
+	if fromToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'fromToken' is required"})
 		return
 	}
-	if req.FromToken == "" || req.ToToken == "" || req.AmountIn == "" || req.FromChainID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "fromToken, toToken, amountIn, and fromChainID are required"})
+	if toToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'toToken' is required"})
 		return
 	}
-	routeResponse, err := services.FindBestSwapRoute(c.Request.Context(), req)
+	if amountInStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'amountIn' is required"})
+		return
+	}
+	if fromChainID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'fromChainID' is required"})
+		return
+	}
+
+	// Optional: Further validation for amountIn (e.g., is it a number?)
+	// _, err := strconv.ParseFloat(amountInStr, 64) // Or use sdk.NewDecFromStr if needed
+	// if err != nil {
+	// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'amountIn' must be a valid number"})
+	// 	return
+	// }
+    // For now, we assume the service layer will handle amountIn string parsing.
+
+	// Create the request struct after manual validation
+	req := models.BestRouteRequest{
+		FromToken:   fromToken,
+		ToToken:     toToken,
+		AmountIn:    amountInStr,
+		FromChainID: fromChainID,
+	}
+
+	log.Printf("API: Received best-route request: %+v", req)
+	routeResponse, err := services.FindBestSwapRoute(c.Request.Context(), req) // Pass context
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to find best route: " + err.Error()})
+		log.Printf("API Error: Failed to find best route: %v", err)
+		// Send the actual error message from the service layer
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, routeResponse)
 }
+
 
 func ExecuteSwapHandler(c *gin.Context) {
 	var req models.ExecuteSwapRequest
