@@ -22,24 +22,17 @@ func (msg *MsgExecuteContract) ValidateBasic() error {
 	return nil
 }
 
-// MsgExecuteContractWrapper wraps MsgExecuteContract to implement sdk.Msg
-type MsgExecuteContractWrapper struct {
-    *MsgExecuteContract
-}
 
 // ProtoMessage implements proto.Message
-func (m MsgExecuteContractWrapper) ProtoMessage() {}
+func (m MsgExecuteContract) ProtoMessage() {}
 
 // Reset implements proto.Message
-func (m MsgExecuteContractWrapper) Reset() {}
+func (m MsgExecuteContract) Reset() {}
 
 // String implements proto.Message
-func (m MsgExecuteContractWrapper) String() string {
+func (m MsgExecuteContract) String() string {
     return fmt.Sprintf("MsgExecuteContract{Sender: %s, Contract: %s, Funds: %s}", 
         m.Sender, m.Contract, m.Funds.String())
 }
 
 // ValidateBasic implements sdk.Msg
-func (m MsgExecuteContractWrapper) ValidateBasic() error {
-    return m.MsgExecuteContract.ValidateBasic()
-}

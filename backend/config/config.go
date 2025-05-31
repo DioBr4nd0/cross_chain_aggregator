@@ -15,6 +15,7 @@ type ChainConfig struct {
 	GasPrices     string   `json:"gasPrices"`       // Gas prices for transactions (e.g., "0.025ualpha")
 	DexContract   string   `json:"dexContract"`     // Address of the deployed MockDEX contract
 	SupportedTokens []string `json:"supportedTokens"` // Tokens this chain's DEX can trade (including IBC vouchers)
+	NativeToken   string   `json:"nativeToken"`
 }
 
 // IBCChannelConfig defines an IBC channel between two chains.
@@ -41,19 +42,19 @@ func InitAppConfig() {
 		"alphanet-1": {
 			ID: "alphanet-1", Name: "AlphaNet", RPCEndpoint: "http://localhost:26657", GRPCEndpoint: "localhost:9090",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.alphanet", OperatorKeyName: "backendop", FeeDenom: "ualpha", GasPrices: "0.025ualpha",
-			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", NativeToken:   "ualpha",// Use your actual deployed address
 			SupportedTokens: []string{"ualpha", "ibc/BetaOnAlpha", "ibc/GammaOnAlpha"}, // Conceptual IBC denoms
 		},
 		"betanet-1": {
 			ID: "betanet-1", Name: "BetaNet", RPCEndpoint: "http://localhost:27657", GRPCEndpoint: "localhost:9190",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.betanet", OperatorKeyName: "backendop", FeeDenom: "ubeta", GasPrices: "0.025ubeta",
-			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", NativeToken:   "ubeta",// Use your actual deployed address
 			SupportedTokens: []string{"ubeta", "ibc/AlphaOnBeta", "ibc/GammaOnBeta"},
 		},
 		"gammanet-1": {
 			ID: "gammanet-1", Name: "GammaNet", RPCEndpoint: "http://localhost:28657", GRPCEndpoint: "localhost:9290",
 			AccountPrefix: "wasm", HomeDir: "/home/rupesh/.gammanet", OperatorKeyName: "backendop", FeeDenom: "ugamma", GasPrices: "0.025ugamma",
-			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", // Use your actual deployed address
+			DexContract:   "wasm14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s0phg4d", NativeToken:   "ugamma",// Use your actual deployed address
 			SupportedTokens: []string{"ugamma", "ibc/AlphaOnGamma", "ibc/BetaOnGamma"},
 		},
 	}

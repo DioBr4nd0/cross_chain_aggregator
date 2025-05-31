@@ -109,15 +109,15 @@ func executeDexSwapViaIgnite(
 		return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("failed to marshal DEX swap msg: %w", err)
 	}
 
-	execMsg := &wasmtypes.MsgExecuteContract{
+	msg := &wasmtypes.MsgExecuteContract{
 		Sender:   actualSenderOnChain, // Actual signer
 		Contract: chainCfg.DexContract,
 		Msg:      wasmtypes.RawContractMessage(executeMsgJSON),
 		Funds:    sdk.NewCoins(coinToSendToDex),
 	}
-	msg := wasmtypes.MsgExecuteContractWrapper{
-    MsgExecuteContract: execMsg,
-	}
+	// msg := wasmtypes.MsgExecuteContractWrapper{
+    // MsgExecuteContract: execMsg,
+	// }
 	if err := msg.ValidateBasic(); err != nil {
 		return models.ExecuteSwapResponse{Status: "failed"}, fmt.Errorf("invalid MsgExecuteContract: %w", err)
 	}
